@@ -10,6 +10,7 @@
 #include <lib/zx/channel.h>
 #include <lib/zx/handle.h>
 #include <lib/zx/vmo.h>
+#include <fbl/function.h>
 #include <fbl/ref_counted.h>
 #include <fbl/ref_ptr.h>
 #include <fbl/type_support.h>
@@ -20,7 +21,8 @@
 namespace audio {
 namespace intel_hda {
 
-using WaitConditionFn = bool (*)(void*);
+static constexpr size_t MAX_HANDLER_CAPTURE_SIZE = sizeof(void*) * 2;
+using WaitConditionFn = fbl::InlineFunction<bool(void*), MAX_HANDLER_CAPTURE_SIZE>;
 zx_status_t WaitCondition(zx_time_t timeout,
                           zx_time_t poll_interval,
                           WaitConditionFn cond,
