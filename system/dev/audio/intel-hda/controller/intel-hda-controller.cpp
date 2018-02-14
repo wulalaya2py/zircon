@@ -67,6 +67,9 @@ IntelHDAController::~IntelHDAController() {
     ZX_DEBUG_ASSERT((GetState() == State::STARTING) || (GetState() == State::SHUT_DOWN));
     // TODO(johngro) : place the device into reset.
 
+    // Release ADSP
+    adsp_ = nullptr;
+
     // Release our register window.
     mapped_regs_.Unmap();
 
@@ -190,6 +193,11 @@ void IntelHDAController::DeviceShutdown() {
 
     // If the IRQ thread is running, make sure we shut it down too.
     ShutdownIRQThread();
+
+    // If the Audio DSP exists, shut it down.
+    if (adsp_ != nullptr) {
+        adsp_->Shutdown();
+    }
 }
 
 void IntelHDAController::DeviceRelease() {

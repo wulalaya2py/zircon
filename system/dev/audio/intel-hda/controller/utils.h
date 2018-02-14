@@ -36,7 +36,7 @@ template <typename T> _SIC_ T  OR(T x, T y) { return static_cast<T>(x | y); }
 template <typename T> _SIC_ T AND(T x, T y) { return static_cast<T>(x & y); }
 #undef _SIC_
 
-using WaitConditionFn = bool (*)(void*);
+using WaitConditionFn = fbl::Function<bool(void*)>;
 zx_status_t WaitCondition(zx_time_t timeout,
                           zx_time_t poll_interval,
                           WaitConditionFn cond,

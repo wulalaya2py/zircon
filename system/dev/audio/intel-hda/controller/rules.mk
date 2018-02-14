@@ -12,6 +12,8 @@ MODULE_SRCS += \
     $(LOCAL_DIR)/binding.c \
     $(LOCAL_DIR)/codec-cmd-job.cpp \
     $(LOCAL_DIR)/debug.cpp \
+    $(LOCAL_DIR)/intel-audio-dsp.cpp \
+    $(LOCAL_DIR)/intel-dsp-code-loader.cpp \
     $(LOCAL_DIR)/intel-hda-codec.cpp \
     $(LOCAL_DIR)/intel-hda-controller.cpp \
     $(LOCAL_DIR)/intel-hda-controller-init.cpp \
@@ -34,5 +36,6 @@ MODULE_STATIC_LIBS := \
     system/ulib/fbl \
     system/ulib/zx \
     system/ulib/zxcpp \
+    system/ulib/ddktl \
 
 include make/module.mk

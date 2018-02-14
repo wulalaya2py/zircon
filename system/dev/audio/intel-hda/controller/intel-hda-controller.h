@@ -23,6 +23,7 @@
 
 #include "codec-cmd-job.h"
 #include "debug-logging.h"
+#include "intel-audio-dsp.h"
 #include "intel-hda-codec.h"
 #include "pinned-vmo.h"
 #include "thread-annotations.h"
@@ -30,6 +31,8 @@
 
 namespace audio {
 namespace intel_hda {
+
+class IntelAudioDSP;
 
 class IntelHDAController : public fbl::RefCounted<IntelHDAController> {
 public:
@@ -39,11 +42,12 @@ public:
     zx_status_t Init(zx_device_t* pci_dev);
 
     // one-liner accessors.
-    const char*                  dev_name() const   { return device_get_name(dev_node_); }
-    zx_device_t*                 dev_node()         { return dev_node_; }
-    const zx_pcie_device_info_t& dev_info() const   { return pci_dev_info_; }
-    unsigned int                 id() const         { return id_; }
-    const char*                  log_prefix() const { return log_prefix_; }
+    const char*                  dev_name() const     { return device_get_name(dev_node_); }
+    zx_device_t*                 dev_node()           { return dev_node_; }
+    const zx_pcie_device_info_t& dev_info() const     { return pci_dev_info_; }
+    unsigned int                 id() const           { return id_; }
+    const char*                  log_prefix() const   { return log_prefix_; }
+    pci_protocol_t*              pci() const          { return const_cast<pci_protocol_t*>(&pci_); }
 
     // CORB/RIRB
     zx_status_t QueueCodecCmd(fbl::unique_ptr<CodecCmdJob>&& job) TA_EXCL(corb_lock_);
@@ -107,6 +111,7 @@ private:
     zx_status_t SetupStreamDescriptors() TA_EXCL(stream_pool_lock_);
     zx_status_t SetupCommandBufferSize(uint8_t* size_reg, unsigned int* entry_count);
     zx_status_t SetupCommandBuffer() TA_EXCL(corb_lock_, rirb_lock_);
+    void        ProbeAudioDSP();
 
     void WaitForIrqOrWakeup();
 
@@ -197,6 +202,8 @@ private:
 
     fbl::Mutex codec_lock_;
     fbl::RefPtr<IntelHDACodec> codecs_[HDA_MAX_CODECS];
+
+    fbl::unique_ptr<IntelAudioDSP> adsp_ = nullptr;
 
     static fbl::atomic_uint32_t device_id_gen_;
     static zx_protocol_device_t  CONTROLLER_DEVICE_THUNKS;

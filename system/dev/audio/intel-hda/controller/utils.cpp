@@ -28,7 +28,7 @@ zx_status_t WaitCondition(zx_time_t timeout,
                           WaitConditionFn cond,
                           void* cond_ctx) {
     ZX_DEBUG_ASSERT(poll_interval != ZX_TIME_INFINITE);
-    ZX_DEBUG_ASSERT(cond != nullptr);
+    ZX_DEBUG_ASSERT(cond);
 
     zx_time_t now = zx_clock_get(ZX_CLOCK_MONOTONIC);
     timeout += now;
@@ -69,11 +69,16 @@ zx_status_t DriverVmars::Initialize() {
     constexpr size_t MAX_SIZE_PER_CONTROLLER =
         sizeof(hda_all_registers_t) +
         MAPPED_CORB_RIRB_SIZE +
-        (MAX_STREAMS_PER_CONTROLLER * MAPPED_BDL_SIZE);
+        (MAX_STREAMS_PER_CONTROLLER * MAPPED_BDL_SIZE) +
+        sizeof(adsp_registers_t) +
+        MAPPED_BDL_SIZE;
 
-    // One alloc for the main registers, one for the CORB/RIRB, and one for each
-    // possible stream BDL.
-    constexpr size_t MAX_ALLOCS_PER_CONTROLLER = 2 + MAX_STREAMS_PER_CONTROLLER;
+    // One alloc for the main registers, one for code loader BDL.
+    constexpr size_t MAX_ALLOCS_PER_DSP = 2;
+    // One alloc for the main registers, one for the CORB/RIRB, two for DSP,
+    // and one for each possible stream BDL.
+    constexpr size_t MAX_ALLOCS_PER_CONTROLLER = 2 + MAX_ALLOCS_PER_DSP +
+                                                 MAX_STREAMS_PER_CONTROLLER;
     constexpr size_t MAX_CONTROLLERS = 4;
     constexpr size_t VMAR_SIZE = 2 *
         ((MAX_CONTROLLERS * MAX_SIZE_PER_CONTROLLER) +
