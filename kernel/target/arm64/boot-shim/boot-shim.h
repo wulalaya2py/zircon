@@ -6,4 +6,6 @@
 
 #include <zircon/boot/bootdata.h>
 
-uint64_t boot_shim(void* device_tree, zircon_kernel_t* kernel);
+extern bootdata_t* bootdata_return;
+
+uint64_t boot_shim(void* device_tree, bootdata_t* bootdata);

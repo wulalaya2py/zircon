@@ -4,7 +4,9 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <stddef.h>
 
-void uart_print(const char* str);
-void uart_print_hex(uint64_t value);
+void fail(const char* message);
+void *memcpy(void *dest, const void *src, size_t count);
+int strcmp(char const *cs, char const *ct);
+
