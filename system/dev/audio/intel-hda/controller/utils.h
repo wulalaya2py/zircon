@@ -34,6 +34,10 @@ constexpr size_t MAPPED_BDL_SIZE = PAGE_SIZE;
 #define _SIC_ static inline constexpr
 template <typename T> _SIC_ T  OR(T x, T y) { return static_cast<T>(x | y); }
 template <typename T> _SIC_ T AND(T x, T y) { return static_cast<T>(x & y); }
+
+template <typename E> _SIC_ typename fbl::underlying_type<E>::type to_underlying(E e) {
+    return static_cast<typename fbl::underlying_type<E>::type>(e);
+}
 #undef _SIC_
 
 using WaitConditionFn = fbl::Function<bool(void*)>;

@@ -34,8 +34,10 @@ MODULE_STATIC_LIBS := \
     system/ulib/audio-proto-utils \
     system/ulib/dispatcher-pool \
     system/ulib/fbl \
+    system/ulib/sync \
     system/ulib/zx \
     system/ulib/zxcpp \
     system/ulib/ddktl \
+    system/ulib/pretty \
 
 include make/module.mk
