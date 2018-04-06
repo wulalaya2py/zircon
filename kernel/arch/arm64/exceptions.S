@@ -54,6 +54,7 @@ mrs  x9, sp_el0
 mrs  x10, elr_el1
 mrs  x11, spsr_el1
 mrs  x12, mdscr_el1
+// mrs  x13, dlr_el0
 stp  lr, x9, [sp, #regsave_special_reg_offset]
 .cfi_rel_offset lr, (regsave_special_reg_offset)
 .cfi_rel_offset sp, (regsave_special_reg_offset + 8)
@@ -120,6 +121,20 @@ msr  spsr_el1, x11
 msr  mdscr_el1, x12
 pop_regs x0, x1
 pop_regs x2, x3
+
+// ERASEME:    (x0 + 3) * (x1 + 7) + 22 == x3
+// add x5, x0, 3
+// add x6, x1, 7
+// mul x4, x5, x6  // x4 = x5 * x6
+// add x4, x4, 22
+// cmp x4, x3
+// b.ne find_good
+// mrs x0, mdscr_el1
+// mrs x0, dlr_el0
+// mrs x1, spsr_el1
+
+find_good:
+
 pop_regs x4, x5
 pop_regs x6, x7
 pop_regs x8, x9

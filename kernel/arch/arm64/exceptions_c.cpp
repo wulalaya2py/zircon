@@ -111,6 +111,12 @@ static void arm64_brk_handler(struct arm64_iframe_long* iframe, uint exception_f
         printf("BRK in kernel: PC at %#" PRIx64 "\n", iframe->elr);
         exception_die(iframe, esr);
     }
+
+    // uint64_t dlr_el0;
+    // asm volatile("\t mrs %0, dlr_el0" : "=r"(dlr_el0));
+    // printf("DLR_EL0 = 0x%016lx\n", dlr_el0);
+
+    printf("KERNEL: arm64_brk_handler\n");
     try_dispatch_user_exception(ZX_EXCP_SW_BREAKPOINT, iframe, esr);
 }
 
@@ -121,6 +127,12 @@ static void arm64_step_handler(struct arm64_iframe_long* iframe, uint exception_
         printf("software step in kernel: PC at %#" PRIx64 "\n", iframe->elr);
         exception_die(iframe, esr);
     }
+
+    // uint64_t dlr_el0;
+    // asm("\t mrs %0, dlr_el0" : "=r"(dlr_el0));
+    // printf("DLR_EL0 = 0x%016lx\n", dlr_el0);
+
+    printf("KERNEL: arm64_step_handler\n");
     try_dispatch_user_exception(ZX_EXCP_HW_BREAKPOINT, iframe, esr);
 }
 
@@ -264,6 +276,7 @@ extern "C" void arm64_sync_exception(
     case 0b111000: /* BRK from arm32 */
     case 0b111100: /* BRK from arm64 */
         kcounter_add(exceptions_brkpt, 1u);
+        printf("arm64_brk_handler elr = %#" PRIx64 "\n", iframe->elr);
         arm64_brk_handler(iframe, exception_flags, esr);
         break;
     case 0b000111: /* floating point */
@@ -285,6 +298,7 @@ extern "C" void arm64_sync_exception(
         break;
     case 0b110010: /* software step from lower level */
     case 0b110011: /* software step from same level */
+        printf("arm64_step_handler elr = %#" PRIx64 "\n", iframe->elr);
         arm64_step_handler(iframe, exception_flags, esr);
         break;
     default: {
