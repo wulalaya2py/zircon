@@ -7,9 +7,10 @@
 #include <stdio.h>
 #include <trace.h>
 #include <lib/cbuf.h>
-#include <kernel/thread.h>
+#include <arch/arm64/periphmap.h>
 #include <dev/interrupt.h>
 #include <dev/uart.h>
+#include <kernel/thread.h>
 #include <platform/debug.h>
 #include <mdi/mdi.h>
 #include <mdi/mdi-defs.h>
@@ -243,15 +244,15 @@ static void imx_uart_init(mdi_node_ref_t* node, uint level)
 }
 
 static void imx_uart_init_early(mdi_node_ref_t* node, uint level) {
-    uint64_t uart_base_virt = 0;
-    bool got_uart_base_virt = false;
+    uint64_t uart_base_phys = 0;
+    bool got_uart_base_phys = false;
     bool got_uart_irq = false;
 
     mdi_node_ref_t child;
     mdi_each_child(node, &child) {
         switch (mdi_id(&child)) {
-        case MDI_BASE_VIRT:
-            got_uart_base_virt = !mdi_node_uint64(&child, &uart_base_virt);
+        case MDI_BASE_PHYS:
+            got_uart_base_phys = !mdi_node_uint64(&child, &uart_base_phys);
             break;
         case MDI_IRQ:
             got_uart_irq = !mdi_node_uint32(&child, &uart_irq);
@@ -259,14 +260,14 @@ static void imx_uart_init_early(mdi_node_ref_t* node, uint level) {
         }
     }
 
-    if (!got_uart_base_virt) {
-        panic("imx uart: uart_base_virt not defined\n");
+    if (!got_uart_base_phys) {
+        panic("imx uart: uart_base_phys not defined\n");
     }
     if (!got_uart_irq) {
         panic("imx uart: uart_irq not defined\n");
     }
 
-    uart_base = (uint64_t)uart_base_virt;
+    uart_base = paddr_to_periph(uart_base_phys);
 
     pdev_register_uart(&uart_ops);
 }

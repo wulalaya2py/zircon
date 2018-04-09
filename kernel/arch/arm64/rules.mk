@@ -22,6 +22,7 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/header.S \
 	$(LOCAL_DIR)/mexec.S \
 	$(LOCAL_DIR)/mmu.cpp \
+	$(LOCAL_DIR)/periphmap.cpp \
 	$(LOCAL_DIR)/spinlock.cpp \
 	$(LOCAL_DIR)/start.S \
 	$(LOCAL_DIR)/sysreg.cpp \
@@ -67,8 +68,12 @@ GLOBAL_DEFINES += \
 # kernel is linked to run at the arbitrary address of -4GB
 KERNEL_BASE := 0xffffffff00000000
 
+# peripherals are mapped at the arbitrary address of -8GB
+PERIPHERAL_BASE := 0xfffffffe00000000
+
 KERNEL_DEFINES += \
 	KERNEL_BASE=$(KERNEL_BASE) \
+	PERIPHERAL_BASE=$(PERIPHERAL_BASE) \
 
 # try to find the toolchain
 include $(LOCAL_DIR)/toolchain.mk

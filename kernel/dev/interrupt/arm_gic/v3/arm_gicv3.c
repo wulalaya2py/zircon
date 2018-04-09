@@ -5,6 +5,7 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT
 
+#include <arch/arm64/periphmap.h>
 #include <assert.h>
 #include <bits.h>
 #include <dev/interrupt.h>
@@ -54,7 +55,7 @@ GPR to generate an external interrupt to wake-up the powered-down core.
 The SW workaround is implemented into default BSP release. The workaround commit tag is
 “MLK-16804-04 driver: irqchip: Add IPI SW workaround for imx8mq" on the linux-imx project
 */
-static uint64_t mx8_gpr_virt = 0;
+static uint64_t mx8_gpr_phys = 0;
 
 static uint32_t ipi_base = 0;
 
@@ -213,7 +214,8 @@ static zx_status_t arm_gic_sgi(u_int irq, u_int flags, u_int cpu_mask) {
         gic_write_sgi1r(val);
         cluster += 1;
         // Work around
-        if (mx8_gpr_virt) {
+        if (mx8_gpr_phys) {
+            uint64_t mx8_gpr_virt = paddr_to_periph(mx8_gpr_phys);
             uint32_t regVal;
             // peinding irq32 to wakeup core
             regVal = *(volatile uint32_t *)(mx8_gpr_virt + 0x4);
@@ -400,16 +402,16 @@ static const struct pdev_interrupt_ops gic_ops = {
 };
 
 static void arm_gic_v3_init(mdi_node_ref_t* node, uint level) {
-    uint64_t gic_base_virt = 0;
+    uint64_t gic_base_phys = 0;
 
     LTRACE_ENTRY;
 
-    bool got_gic_base_virt = false;
+    bool got_gic_base_phys = false;
     bool got_gicd_offset = false;
     bool got_gicr_offset = false;
     bool got_gicr_stride = false;
     bool got_ipi_base = false;
-    bool got_mx8_gpr_virt = false;
+    bool got_mx8_gpr_phys = false;
 
     bool optional = false;
 
@@ -423,8 +425,8 @@ static void arm_gic_v3_init(mdi_node_ref_t* node, uint level) {
     mdi_node_ref_t child;
     mdi_each_child(node, &child) {
         switch (mdi_id(&child)) {
-        case MDI_BASE_VIRT:
-            got_gic_base_virt = !mdi_node_uint64(&child, &gic_base_virt);
+        case MDI_BASE_PHYS:
+            got_gic_base_phys = !mdi_node_uint64(&child, &gic_base_phys);
             break;
         case MDI_ARM_GIC_V3_GICD_OFFSET:
             got_gicd_offset = !mdi_node_uint64(&child, &arm_gicv3_gicd_offset);
@@ -438,8 +440,8 @@ static void arm_gic_v3_init(mdi_node_ref_t* node, uint level) {
         case MDI_ARM_GIC_V3_IPI_BASE:
             got_ipi_base = !mdi_node_uint32(&child, &ipi_base);
             break;
-        case MDI_ARM_GIC_V3_MX8_GPR_VIRT:
-            got_mx8_gpr_virt = !mdi_node_uint64(&child, &mx8_gpr_virt);
+        case MDI_ARM_GIC_V3_MX8_GPR_PHYS:
+            got_mx8_gpr_phys = !mdi_node_uint64(&child, &mx8_gpr_phys);
             break;
         case MDI_ARM_GIC_V3_OPTIONAL:
             mdi_node_boolean(&child, &optional);
@@ -447,8 +449,8 @@ static void arm_gic_v3_init(mdi_node_ref_t* node, uint level) {
         }
     }
 
-    if (!got_gic_base_virt) {
-        printf("arm-gic-v3: gic_base_virt not defined\n");
+    if (!got_gic_base_phys) {
+        printf("arm-gic-v3: gic_base_phys not defined\n");
         return;
     }
     if (!got_gicd_offset) {
@@ -467,11 +469,11 @@ static void arm_gic_v3_init(mdi_node_ref_t* node, uint level) {
         printf("arm-gic-v3: ipi_base not defined\n");
         return;
     }
-    if (got_mx8_gpr_virt) {
+    if (got_mx8_gpr_phys) {
         printf("arm-gic-v3: Applying Errata e11171 for NXP MX8!\n");
     }
 
-    arm_gicv3_gic_base = (uint64_t)gic_base_virt;
+    arm_gicv3_gic_base = paddr_to_periph(gic_base_phys);
 
     if (gic_init() != ZX_OK) {
         if (optional) {
