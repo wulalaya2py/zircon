@@ -158,9 +158,6 @@ zx_status_t IntelDSPCodeLoader::TransferFirmware(const zx::vmo& fw, size_t fw_si
         return st;
     }
 
-    // TODO(yky) I don't know why I need this
-    zx_nanosleep(zx_deadline_after(ZX_SEC(1)));
-
     // Pin this VMO and grant the controller access to it.  The controller
     // should only need read access to the firmware.
     constexpr uint32_t DSP_MAP_FLAGS = ZX_BTI_PERM_READ;
@@ -173,10 +170,12 @@ zx_status_t IntelDSPCodeLoader::TransferFirmware(const zx::vmo& fw, size_t fw_si
     }
 
     // Clean cache
+#if 0
     st = stripped_vmo.op_range(ZX_VMO_OP_CACHE_CLEAN, 0, stripped_size, NULL, 0);
     if (st != ZX_OK) {
         LOG(ERROR, "Error cleaning cache (err %d)\n", st);
     }
+#endif
 
     uint32_t region_count = pinned_fw.region_count();
 
@@ -224,6 +223,25 @@ zx_status_t IntelDSPCodeLoader::TransferFirmware(const zx::vmo& fw, size_t fw_si
                              HDA_SD_REG_STS32_ACK;
     REG_SET_BITS(&regs_->stream.ctl_sts.w, SET);
     hw_wmb();
+
+#if 0
+    st = WaitCondition(ZX_USEC(300),
+                       ZX_USEC(3),
+                       [](void* r) -> bool {
+                           auto regs = reinterpret_cast<adsp_code_loader_registers_t*>(r);
+                           return ((REG_RD(&regs->stream.ctl_sts.w) & HDA_SD_REG_CTRL_RUN) ==
+                                   HDA_SD_REG_CTRL_RUN);
+                       },
+                       regs_);
+    if (st != ZX_OK) {
+        LOG(ERROR, "Error waiting for DMA start (err %d)\n", st);
+        LOG(ERROR, "CTL_STS=0x%08x\n", REG_RD(&regs_->stream.ctl_sts.w));
+        return st;
+    }
+#endif
+
+    // TODO(yky) I don't know why I need this
+    zx_nanosleep(zx_deadline_after(ZX_SEC(1)));
 
     return ZX_OK;
 }

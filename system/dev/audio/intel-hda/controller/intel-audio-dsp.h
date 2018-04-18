@@ -75,9 +75,17 @@ private:
 
     void EnableInterrupts();
 
+    enum class State : uint8_t {
+        START,
+        INITIALIZING,  // init thread running
+        OPERATING,
+        SHUT_DOWN,
+        ERROR = 0xFF,
+    };
+    State state_ = State::START;
+
     // Init thread
     thrd_t init_thread_;
-    bool   initialized_ = false;
 
     // Log prefix storage
     char log_prefix_[LOG_PREFIX_STORAGE] = { 0 };

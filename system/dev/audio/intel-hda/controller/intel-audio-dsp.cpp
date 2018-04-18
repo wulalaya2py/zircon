@@ -110,6 +110,8 @@ zx_status_t IntelAudioDSP::Initialize() {
         return res;
     }
 
+    state_ = State::INITIALIZING;
+
     // Perform hardware initializastion in a thread.
     int c11_res = thrd_create(
             &init_thread_,
@@ -117,6 +119,7 @@ zx_status_t IntelAudioDSP::Initialize() {
             this);
     if (c11_res < 0) {
         LOG(ERROR, "Failed to create init thread (res = %d)\n", c11_res);
+        state_ = State::ERROR;
         return ZX_ERR_INTERNAL;
     } else {
         return ZX_OK;
@@ -125,7 +128,7 @@ zx_status_t IntelAudioDSP::Initialize() {
 
 void IntelAudioDSP::ProcessIRQ() {
     // Nop if DSP is not initialized.
-    if (!initialized_) {
+    if (state_ != State::OPERATING) {
         return;
     }
 
@@ -139,12 +142,16 @@ void IntelAudioDSP::ProcessIRQ() {
 }
 
 void IntelAudioDSP::Shutdown() {
+    if (state_ == State::INITIALIZING) {
+        thrd_join(init_thread_, NULL);
+    }
+
     PowerDownCore(ADSP_REG_ADSPCS_CORE0_MASK);
 
     // Disable Audio DSP and HDA interrupt
     REG_CLR_BITS<uint32_t>(&pp_regs()->ppctl, HDA_PPCTL_GPROCEN | HDA_PPCTL_PIE);
 
-    initialized_ = false;
+    state_ = State::SHUT_DOWN;
 }
 
 void IntelAudioDSP::DdkUnbind() {
@@ -205,7 +212,7 @@ int IntelAudioDSP::InitThread() {
         return -1;
     }
 
-    initialized_ = true;
+    state_ = State::OPERATING;
 
     return 0;
 }
