@@ -43,5 +43,8 @@ private:
     const uint64_t low_;
     const uint64_t high_;
 
+    // restrict the system to a single root resource created by userboot
+    static bool root_created_;
+
     CookieJar cookie_jar_;
 };
