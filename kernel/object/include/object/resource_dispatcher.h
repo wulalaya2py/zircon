@@ -23,10 +23,20 @@ class ResourceRecord;
 class ResourceDispatcher final : public SoloDispatcher,
     public fbl::DoublyLinkedListable<fbl::RefPtr<ResourceDispatcher>> {
 public:
+    // Creates ResourceDispatcher object representing access rights a
+    // given region of address space from a particular address space allocator, or a root resource
+    // granted full access permissions. Only one instance of the root resource is created at boot.
     static zx_status_t Create(fbl::RefPtr<ResourceDispatcher>* dispatcher,
                            zx_rights_t* rights, uint32_t kind,
-                           uint64_t low, uint64_t hight);
+                           uint64_t low, uint64_t high);
+    // Initializes a resource by attempting to obtain an address space reservation
+    // for its named range.
     zx_status_t Initialize();
+
+    // Creates a ResourceDispatcher of any kind besides ZX_RSRC_KIND_ROOT. This requires that
+    // the ResourceDispatcher this method is being called on is of kind ZX_RSRC_KIND_ROOT.
+    zx_status_t CreateChildResource(uint32_t kind, uint64_t low, uint64_t high,
+                                    zx_rights_t* rights, fbl::RefPtr<ResourceDispatcher>& disp);
 
     ~ResourceDispatcher() final;
     zx_obj_type_t get_type() const final { return ZX_OBJ_TYPE_RESOURCE; }

@@ -89,5 +89,32 @@ ResourceDispatcher::ResourceDispatcher(uint32_t kind, uint64_t low, uint64_t hig
     }
 }
 
+zx_status_t ResourceDispatcher::CreateChildResource(uint32_t kind, uint64_t low, uint64_t high, zx_rights_t* rights,
+                                                    fbl::RefPtr<ResourceDispatcher>& out_disp) {
+    // New resources may only be created if we are root and not trying
+    // to create root.
+    if (kind_ != ZX_RSRC_KIND_ROOT || kind == ZX_RSRC_KIND_ROOT) {
+        return ZX_ERR_ACCESS_DENIED;
+    }
+
+    fbl::AllocChecker ac;
+    ResourceDispatcher* disp = new (&ac) ResourceDispatcher(kind, low, high);
+    if (!ac.check()) {
+        return ZX_ERR_NO_MEMORY;
+    }
+
+    zx_status_t st = disp->Initialize();
+    if (st != ZX_OK) {
+        delete disp;
+        return st;
+    }
+
+    if (rights) {
+        *rights = ZX_DEFAULT_RESOURCE_RIGHTS;
+    }
+    out_disp = fbl::move(fbl::AdoptRef<ResourceDispatcher>(disp));
+    return ZX_OK;
+}
+
 ResourceDispatcher::~ResourceDispatcher() {
 }
