@@ -311,6 +311,8 @@ static zx_status_t pci_init_child(zx_device_t* parent, uint32_t index) {
     device_get_protocol(parent, ZX_PROTOCOL_PCIROOT, &device->pciroot);
     device_get_protocol(parent, ZX_PROTOCOL_PLATFORM_DEV, &device->pdev);
 
+    pciroot_get_pci_mcfgs(&device->pciroot);
+
     char name[20];
     snprintf(name, sizeof(name), "%02x:%02x.%1x", info.bus_id, info.dev_id, info.func_id);
     zx_device_prop_t device_props[] = {

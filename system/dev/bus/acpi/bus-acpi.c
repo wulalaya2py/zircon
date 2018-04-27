@@ -276,9 +276,18 @@ static zx_status_t pciroot_op_get_bti(void* context, uint32_t bdf, uint32_t inde
     return zx_bti_create(dummy_iommu_handle, 0, bdf, bti);
 }
 
+static zx_status_t pciroot_op_get_pci_mcfgs(void* context) {
+    zx_pci_init_arg_t* arg;
+    uint32_t size;
+    zx_status_t st = get_pci_init_arg(&arg, &size);
+    zxlogf(SPEW, "init arg return value: %d\n", st);
+    return st;
+}
+
 static pciroot_protocol_ops_t pciroot_proto = {
     .get_auxdata = pciroot_op_get_auxdata,
     .get_bti = pciroot_op_get_bti,
+    .get_pci_mcfgs = pciroot_op_get_pci_mcfgs,
 };
 
 typedef struct {
