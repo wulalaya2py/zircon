@@ -42,6 +42,13 @@
 #define ERROR(fmt, ...) fprintf(stderr, PAVER_PREFIX "[%s] " fmt, __FUNCTION__, ##__VA_ARGS__);
 #define LOG(fmt, ...) fprintf(stdout, PAVER_PREFIX "[%s] " fmt, __FUNCTION__, ##__VA_ARGS__);
 
+#ifdef __x86_64__
+// enable functionality that we don't want present on arm64
+#define PAVE_CROS 1
+#define PAVE_UEFI 1
+#define PAVE_GPT 1
+#endif
+
 namespace {
 
 constexpr char kBlockDevPath[] = "/dev/class/block";
@@ -556,6 +563,7 @@ zx_status_t fvm_stream_partitions(fbl::unique_fd src_fd) {
     return ZX_OK;
 }
 
+#if PAVE_GPT
 // Find and return the topological path of the GPT which we will pave.
 // |out_path| must be at least |PATH_MAX| bytes long.
 zx_status_t find_target_gpt(char* out_path) {
@@ -714,6 +722,7 @@ zx_status_t find_first_fit(const gpt_device_t* gpt, const fbl::unique_fd& gpt_fd
     ERROR("No GPT space found\n");
     return ZX_ERR_NO_RESOURCES;
 }
+#endif
 
 // Returns "true" if the corresponding partition should
 // be used for paving.
@@ -735,6 +744,7 @@ using PartitionCreateCb = bool (*)(uint8_t* type_out, uint64_t* size_bytes_out,
 using PartitionFinalizeCb = zx_status_t (*)(const block_info_t* info,
                                             gpt_device_t* gpt, bool* modified);
 
+#if PAVE_GPT
 // Returns a file descriptor to a partition which can be paved,
 // if one exists.
 template <PartitionFilterCb filterCb>
@@ -945,6 +955,9 @@ done:
     gpt_device_release(gpt);
     return status;
 }
+#endif // PAVE_GPT
+
+#if PAVE_UEFI
 
 // Name used by previous Fuchsia Installer
 const char* oldEfiName = "EFI";
@@ -974,7 +987,9 @@ bool efi_create_cb(uint8_t* type_out, uint64_t* size_bytes_out, const char** nam
     *name_out = efiName;
     return true;
 }
+#endif // PAVE_UEFI
 
+#if PAVE_CROS
 const char* kernaName = "KERN-A";
 const char* kernbName = "KERN-B";
 const char* kerncName = "KERN-C";
@@ -1054,19 +1069,24 @@ zx_status_t kernc_finalize_cb(const block_info_t* info, gpt_device_t* gpt, bool*
     *modified = true;
     return ZX_OK;
 }
+#endif // PAVE_CROS
+
 
 } // namespace
 
 // Paves a sparse_file to the underlying disk, on top
 // of a GPT.
 int fvm_pave(fbl::unique_fd fd) {
+    zx_status_t status;
     LOG("Paving FVM\n");
+
+#if PAVE_GPT
     char gpt_path[PATH_MAX];
     if (find_target_gpt(gpt_path)) {
         ERROR("Couldn't find target GPT\n");
         return -1;
     }
-    zx_status_t status = device_specific_disk_prep(gpt_path);
+    status = device_specific_disk_prep(gpt_path);
     if (status != ZX_OK) {
         ERROR("Failed to complete device-specific prep\n");
         return -1;
@@ -1077,6 +1097,7 @@ int fvm_pave(fbl::unique_fd fd) {
         return -1;
     }
     LOG("Added to GPT - OK\n");
+#endif
 
     LOG("Streaming partitions...\n");
     if ((status = fvm_stream_partitions(fbl::move(fd))) != ZX_OK) {
@@ -1090,12 +1111,15 @@ int fvm_pave(fbl::unique_fd fd) {
 // Paves an image onto the disk, within the GPT.
 template <PartitionFilterCb filterCb, PartitionCreateCb createCb, PartitionFinalizeCb finalizeCb>
 zx_status_t partition_pave(fbl::unique_fd fd) {
+    zx_status_t status;
     LOG("Paving a partition to the GPT\n");
+
+#if PAVE_GPT
     char gpt_path[PATH_MAX];
     if (find_target_gpt(gpt_path)) {
         return ZX_ERR_IO;
     }
-    zx_status_t status = device_specific_disk_prep(gpt_path);
+    status = device_specific_disk_prep(gpt_path);
     if (status != ZX_OK) {
         ERROR("Failed to complete device-specific prep\n");
         return -1;
@@ -1127,7 +1151,9 @@ zx_status_t partition_pave(fbl::unique_fd fd) {
         }
     }
     gpt_device_release(gpt);
+#endif // PAVE_GPT
 
+/* FIXME
     if ((status = static_cast<zx_status_t>(ioctl_block_get_info(part_fd.get(), &info))) < 0) {
         ERROR("Couldn't get GPT partition block info\n");
         return status;
@@ -1178,11 +1204,13 @@ zx_status_t partition_pave(fbl::unique_fd fd) {
             gpt_device_sync(gpt);
         }
     }
+*/
 
     LOG("Completed successfully\n");
     return ZX_OK;
 }
 
+#if PAVE_GPT
 // Wipes the following partitions:
 // - System
 // - Data
@@ -1276,6 +1304,7 @@ int fvm_clean() {
     ioctl_block_rr_part(fd.get());
     return 0;
 }
+#endif // PAVE_GPT
 
 void drain(fbl::unique_fd fd) {
     char buf[8192];
@@ -1286,10 +1315,18 @@ void drain(fbl::unique_fd fd) {
 int usage() {
     ERROR("install-disk-image [command] <options*>\n");
     ERROR("Commands:\n");
-    ERROR("  install-fvm   : Install a sparse FVM to the device\n");
-    ERROR("  install-efi   : Install an EFI partition to the device\n");
-    ERROR("  install-kernc : Install a KERN-C CrOS partition to the device\n");
-    ERROR("  wipe          : Clean up the install disk\n");
+    ERROR("  install-fvm      : Install a sparse FVM to the device\n");
+    ERROR("  install-zircon-a : Install a Zircon-A partition to the device\n");
+    ERROR("  install-zircon-b : Install a Zircon-B partition to the device\n");
+#if PAVE_UEFI
+    ERROR("  install-efi      : Install an EFI partition to the device\n");
+#endif
+#if PAVE_CROS
+    ERROR("  install-kernc    : Install a KERN-C CrOS partition to the device\n");
+#endif
+#if PAVE_GPT
+    ERROR("  wipe             : Clean up the install disk\n");
+#endif
     ERROR("Options:\n");
     ERROR("  --file <file>: Read from FILE instead of stdin\n");
     ERROR("  --force: Install partition even if inappropriate for the device\n");
@@ -1297,7 +1334,7 @@ int usage() {
 }
 
 int main(int argc, char** argv) {
-    auto force = false;
+    __UNUSED auto force = false;
     if (argc < 2) {
         ERROR("install-disk-image needs a command\n");
         return usage();
@@ -1334,6 +1371,7 @@ int main(int argc, char** argv) {
         }
     }
 
+#if PAVE_CROS
     // The following code block computes a heuristic against CROS devices. In
     // the case where we detect a CROS device, or where we initialized an empty
     // GPT, we will avoid writing a KERNC partition (essentially, assume EFI
@@ -1355,28 +1393,49 @@ int main(int argc, char** argv) {
             gpt_device_release(gpt);
         }
     }
+#endif
 
-    zx_status_t status;
+#if PAVE_UEFI
     if (!strcmp(cmd, "install-efi")) {
         if (is_cros_device && !force) {
             LOG("SKIPPING EFI install on CROS device, pass --force if desired.\n");
             drain(fbl::move(fd));
             return 0;
         }
-        status = partition_pave<efi_filter_cb, efi_create_cb, nullptr>(fbl::move(fd));
+        zx_status_t status = partition_pave<efi_filter_cb, efi_create_cb, nullptr>(fbl::move(fd));
         return status == ZX_OK ? 0 : -1;
-    } else if (!strcmp(cmd, "install-kernc")) {
+    }
+#endif
+#if PAVE_CROS
+    if (!strcmp(cmd, "install-kernc")) {
         if (!is_cros_device && !force) {
             LOG("SKIPPING KERNC install on non-CROS device, pass --force if desired.\n");
             drain(fbl::move(fd));
             return 0;
         }
-        status = partition_pave<kernc_filter_cb, kernc_create_cb, kernc_finalize_cb>(fbl::move(fd));
+        zx_status_t status = partition_pave<kernc_filter_cb, kernc_create_cb, kernc_finalize_cb>
+                                                                                    (fbl::move(fd));
         return status == ZX_OK ? 0 : -1;
-    } else if (!strcmp(cmd, "install-fvm")) {
+    }
+#endif
+    if (!strcmp(cmd, "install-fvm")) {
         return fvm_pave(fbl::move(fd));
-    } else if (!strcmp(cmd, "wipe")) {
+/*TODO
+    } else if (!strcmp(cmd, "install-zircon-a")) {
+        zx_status_t status = partition_pave<zircon_a_filter_cb, zircon_a_create_cb,
+                                            zircon_a_finalize_cb>(fbl::move(fd));
+        return status == ZX_OK ? 0 : -1;
+    }
+    } else if (!strcmp(cmd, "install-zircon-b")) {
+        zx_status_t status = partition_pave<zircon_b_filter_cb, zircon_b_create_cb,
+                                            zircon_b_finalize_cb>(fbl::move(fd));
+        return status == ZX_OK ? 0 : -1;
+*/
+    }
+#if PAVE_GPT
+    if (!strcmp(cmd, "wipe")) {
         return fvm_clean();
     }
+#endif
     return usage();
 }
