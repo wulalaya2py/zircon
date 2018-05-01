@@ -11,6 +11,14 @@
 #include <object/resource_dispatcher.h>
 #include <zircon/syscalls/resource.h>
 
+static constexpr zx_status_t check_kind(uint32_t res_kind, uint32_t req_kind) {
+    if (res_kind == req_kind || res_kind == ZX_RSRC_KIND_ROOT) {
+        return ZX_OK;
+    }
+
+    return ZX_ERR_ACCESS_DENIED;
+}
+
 zx_status_t validate_resource(zx_handle_t handle, uint32_t kind) {
     auto up = ProcessDispatcher::GetCurrent();
     fbl::RefPtr<ResourceDispatcher> resource;
@@ -18,32 +26,26 @@ zx_status_t validate_resource(zx_handle_t handle, uint32_t kind) {
     if (status != ZX_OK) {
         return status;
     }
-    uint32_t rkind = resource->get_kind();
-    if ((rkind == ZX_RSRC_KIND_ROOT) || (rkind == kind)) {
-        return ZX_OK;
-    }
-    return ZX_ERR_ACCESS_DENIED;
+
+    return check_kind(resource->get_kind(), kind);
 }
 
-zx_status_t validate_ranged_resource(zx_handle_t handle, uint32_t kind, uint64_t low,
-                                     uint64_t high) {
+zx_status_t validate_ranged_resource(zx_handle_t handle,
+                                     uint32_t kind,
+                                     uint64_t base,
+                                     uint64_t len) {
     auto up = ProcessDispatcher::GetCurrent();
     fbl::RefPtr<ResourceDispatcher> resource;
     auto status = up->GetDispatcher(handle, &resource);
     if (status != ZX_OK) {
         return status;
     }
-    uint32_t rsrc_kind = resource->get_kind();
-    if (rsrc_kind == ZX_RSRC_KIND_ROOT) {
-        // root resource is valid for everything
-        return ZX_OK;
-    } else if (rsrc_kind == kind) {
-        uint64_t rsrc_low, rsrc_high;
-        resource->get_range(&rsrc_low, &rsrc_high);
-        if (low >= rsrc_low && high <= rsrc_high) {
-            return ZX_OK;
-        }
+
+    status = check_kind(resource->get_kind(), kind);
+    if (status != ZX_OK) {
+        return status;
     }
 
-    return ZX_ERR_ACCESS_DENIED;
+    // XXX: Check range here
+    return ZX_OK;
 }

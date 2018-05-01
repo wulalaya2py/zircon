@@ -13,8 +13,6 @@
 #include <lib/pasm/pasm.h>
 #include <string.h>
 
-bool ResourceDispatcher::root_created_ = false;
-
 namespace {
 static constexpr uint32_t resource_kind_to_allocator(uint64_t kind) {
     DEBUG_ASSERT(kind == ZX_RSRC_KIND_MMIO || kind == ZX_RSRC_KIND_IOPORT ||
@@ -35,17 +33,13 @@ static constexpr uint32_t resource_kind_to_allocator(uint64_t kind) {
 
 zx_status_t ResourceDispatcher::Create(fbl::RefPtr<ResourceDispatcher>* dispatcher,
                                        zx_rights_t* rights, uint32_t kind,
-                                       uint64_t low, uint64_t high) {
+                                       uint64_t base, uint64_t len) {
     if (kind >= ZX_RSRC_KIND_COUNT) {
         return ZX_ERR_INVALID_ARGS;
     }
 
-    if (kind == ZX_RSRC_KIND_ROOT && root_created_) {
-        return ZX_ERR_ALREADY_EXISTS;
-    }
-
     fbl::AllocChecker ac;
-    ResourceDispatcher* disp = new (&ac) ResourceDispatcher(kind, low, high);
+    ResourceDispatcher* disp = new (&ac) ResourceDispatcher(kind, base, len);
     if (!ac.check()) {
         return ZX_ERR_NO_MEMORY;
     }
@@ -63,34 +57,35 @@ zx_status_t ResourceDispatcher::Create(fbl::RefPtr<ResourceDispatcher>* dispatch
 
 zx_status_t ResourceDispatcher::Initialize() {
     zx_status_t st = ZX_OK;
-#ifdef RESOURCES_USE_PASM
-    if (kind_ == ZX_RSRC_KIND_ROOT) {
-        return st;
+
+    switch (kind_) {
+    // The root resource has full access to everything in the kernel so there is
+    // no need for it to make a PASM allocation.
+    case ZX_RSRC_KIND_ROOT:
+    // TODO(cja): The Hypervisor resource is a binary one, that may make more
+    // sense as a capability in the future.
+    case ZX_RSRC_KIND_HYPERVISOR:
+        return ZX_OK;
+    default:;
+        auto pasm = Pasm::Get();
+        DEBUG_ASSERT(pasm);
+
+        st = pasm->ReserveAddressSpace(resource_kind_to_allocator(kind_), base_, len_, region_);
+        if (st != ZX_OK) {
+            return st;
+        }
+        printf("resource: got region %#" PRIxPTR " size %#lx\n", region_->base, region_->size);
     }
 
-    auto pasm = Pasm::Get()->Get();
-    DEBUG_ASSERT(pasm);
-
-    // TODO(cja): resources may want to take base/len instead of low/high to match the lib
-    st = pasm->ReserveAddressSpace(resource_kind_to_allocator(kind_), low_, high_ - low_, region_);
-    if (st != ZX_OK) {
-        return st;
-    }
-
-    printf("resource: got region %#" PRIxPTR " size %#lx\n", region_->base, region_->size);
-#endif
     return st;
 }
 
-ResourceDispatcher::ResourceDispatcher(uint32_t kind, uint64_t low, uint64_t high) :
-    kind_(kind), low_(low), high_(high) {
-    if (kind == ZX_RSRC_KIND_ROOT) {
-        root_created_ = true;
-    }
+ResourceDispatcher::ResourceDispatcher(uint32_t kind, uint64_t base, uint64_t len) :
+    kind_(kind), base_(base), len_(len) {
 }
 
-zx_status_t ResourceDispatcher::CreateChildResource(uint32_t kind, uint64_t low, uint64_t high, zx_rights_t* rights,
-                                                    fbl::RefPtr<ResourceDispatcher>& out_disp) {
+zx_status_t ResourceDispatcher::CreateChildResource(fbl::RefPtr<ResourceDispatcher>* dispatcher, zx_rights_t* rights,
+                                                    uint32_t kind, uint64_t base, uint64_t len) {
     // New resources may only be created if we are root and not trying
     // to create root.
     if (kind_ != ZX_RSRC_KIND_ROOT || kind == ZX_RSRC_KIND_ROOT) {
@@ -98,7 +93,7 @@ zx_status_t ResourceDispatcher::CreateChildResource(uint32_t kind, uint64_t low,
     }
 
     fbl::AllocChecker ac;
-    ResourceDispatcher* disp = new (&ac) ResourceDispatcher(kind, low, high);
+    ResourceDispatcher* disp = new (&ac) ResourceDispatcher(kind, base, len);
     if (!ac.check()) {
         return ZX_ERR_NO_MEMORY;
     }
@@ -112,7 +107,7 @@ zx_status_t ResourceDispatcher::CreateChildResource(uint32_t kind, uint64_t low,
     if (rights) {
         *rights = ZX_DEFAULT_RESOURCE_RIGHTS;
     }
-    out_disp = fbl::move(fbl::AdoptRef<ResourceDispatcher>(disp));
+    *dispatcher = fbl::AdoptRef<ResourceDispatcher>(disp);
     return ZX_OK;
 }
 

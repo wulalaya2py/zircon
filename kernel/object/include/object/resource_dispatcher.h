@@ -28,15 +28,15 @@ public:
     // granted full access permissions. Only one instance of the root resource is created at boot.
     static zx_status_t Create(fbl::RefPtr<ResourceDispatcher>* dispatcher,
                            zx_rights_t* rights, uint32_t kind,
-                           uint64_t low, uint64_t high);
+                           uint64_t base, size_t len);
     // Initializes a resource by attempting to obtain an address space reservation
     // for its named range.
     zx_status_t Initialize();
 
     // Creates a ResourceDispatcher of any kind besides ZX_RSRC_KIND_ROOT. This requires that
     // the ResourceDispatcher this method is being called on is of kind ZX_RSRC_KIND_ROOT.
-    zx_status_t CreateChildResource(uint32_t kind, uint64_t low, uint64_t high,
-                                    zx_rights_t* rights, fbl::RefPtr<ResourceDispatcher>& disp);
+    zx_status_t CreateChildResource(fbl::RefPtr<ResourceDispatcher>* disp, zx_rights_t* rights,
+                                    uint32_t kind, uint64_t base, size_t len);
 
     ~ResourceDispatcher() final;
     zx_obj_type_t get_type() const final { return ZX_OBJ_TYPE_RESOURCE; }
@@ -44,22 +44,17 @@ public:
     CookieJar* get_cookie_jar() final { return &cookie_jar_; }
 
     uint32_t get_kind() const { return kind_; }
-    void get_range(uint64_t* low, uint64_t* high) { *low = low_, *high = high_; }
+    void get_range(uint64_t* base, uint64_t* len) { *base = base_, *len = len_; }
 
 private:
-    ResourceDispatcher(uint32_t kind, uint64_t low, uint64_t high);
+    ResourceDispatcher(uint32_t kind, uint64_t base, uint64_t len);
 
     fbl::Canary<fbl::magic("RSRD")> canary_;
 
     const uint32_t kind_;
-    const uint64_t low_;
-    const uint64_t high_;
-#ifdef RESOURCES_USE_PASM
+    const uint64_t base_;
+    const uint64_t len_;
     Pasm::Allocation region_;
-#endif
-
-    // restrict the system to a single root resource created by userboot
-    static bool root_created_;
 
     CookieJar cookie_jar_;
 };
