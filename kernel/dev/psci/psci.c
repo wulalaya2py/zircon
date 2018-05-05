@@ -37,8 +37,8 @@ void psci_system_reset(enum reboot_flags flags) {
     } else if (flags == REBOOT_RECOVERY) {
         args = reboot_recovery_args;
     }
-
     do_psci_call(PSCI64_SYSTEM_RESET, args[0], args[1], args[2]);
+    printf("WTF WTF WTF WTF\n");
 }
 
 static void arm_psci_init(const void* driver_data, uint32_t length) {

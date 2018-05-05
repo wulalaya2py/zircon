@@ -16,6 +16,7 @@
 enum {
     BTI_BOARD,
     BTI_USB_XHCI,
+    BTI_USB_DWC2,
     BTI_MALI,
     BTI_DISPLAY,
     BTI_EMMC,
