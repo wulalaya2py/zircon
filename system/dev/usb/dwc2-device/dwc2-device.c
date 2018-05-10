@@ -77,7 +77,7 @@ static void dwc_ep_start_transfer(dwc_usb_t* dwc, unsigned ep_num, bool is_in, z
 printf("ZZZZZZZ dwc_ep_start_transfer\n");
 
 	depctl_t depctl;
-	deptsiz_t* deptsiz;
+	volatile deptsiz_t* deptsiz;
 //	uint32_t ep_mps = 64; // _ep->maxpacket;
 
 //    _ep->total_len = _ep->xfer_len;
@@ -121,8 +121,8 @@ printf("ZZZZZZZ dwc_ep_start_transfer\n");
 	deptsiz->xfersize = length;
 	
 	if (is_in) {
-		regs->core_interrupts.nptxfempty = 0;
-		regs->core_interrupt_mask.nptxfempty = 1;
+		regs->gintsts.nptxfempty = 0;
+		regs->gintmsk.nptxfempty = 1;
 	}
 #endif
 
@@ -260,18 +260,18 @@ static void dwc_complete_ep(dwc_usb_t* dwc, uint32_t ep_num, int is_in) {
 
 
 static void dwc_flush_fifo(dwc_usb_t* dwc, const int num) {
-    union dwc_core_reset core_reset = {0};
+    dwc_grstctl_t grstctl = {0};
 
-	core_reset.txfflsh = 1;
-	core_reset.txfnum = num;
-	regs->core_reset = core_reset;
+	grstctl.txfflsh = 1;
+	grstctl.txfnum = num;
+	regs->grstctl = grstctl;
 	
     uint32_t count = 0;
 	do {
-	    core_reset = regs->core_reset;
+	    grstctl = regs->grstctl;
 		if (++count > 10000)
 			break;
-	} while (core_reset.txfflsh == 1);
+	} while (grstctl.txfflsh == 1);
 
     zx_nanosleep(zx_deadline_after(ZX_USEC(1)));
 
@@ -279,16 +279,16 @@ static void dwc_flush_fifo(dwc_usb_t* dwc, const int num) {
 		return;
     }
 
-    core_reset.val = 0;
-	core_reset.rxfflsh = 1;
-	regs->core_reset = core_reset;
+    grstctl.val = 0;
+	grstctl.rxfflsh = 1;
+	regs->grstctl = grstctl;
 
 	count = 0;
 	do {
-	    core_reset = regs->core_reset;
+	    grstctl = regs->grstctl;
 		if (++count > 10000)
 			break;
-	} while (core_reset.rxfflsh == 1);
+	} while (grstctl.rxfflsh == 1);
 
     zx_nanosleep(zx_deadline_after(ZX_USEC(1)));
 }
@@ -316,19 +316,19 @@ void dwc_handle_reset_irq(dwc_usb_t* dwc) {
 	dwc_flush_fifo(dwc, 0);
 
 	/* Flush the Learning Queue */
-	regs->core_reset.intknqflsh = 1;
+	regs->grstctl.intknqflsh = 1;
 
     // EPO IN and OUT
 	regs->daintmsk = (1 < DWC_EP_IN_SHIFT) | (1 < DWC_EP_OUT_SHIFT);
 
-    union dwc_doepmsk doepmsk = {0};
+    dwc_doepmsk_t doepmsk = {0};
 	doepmsk.setup = 1;
 	doepmsk.xfercompl = 1;
 	doepmsk.ahberr = 1;
 	doepmsk.epdisabled = 1;
 	regs->doepmsk = doepmsk;
 
-    union dwc_diepmsk diepmsk = {0};
+    dwc_diepmsk_t diepmsk = {0};
 	diepmsk.xfercompl = 1;
 	diepmsk.timeout = 1;
 	diepmsk.epdisabled = 1;
@@ -342,9 +342,9 @@ void dwc_handle_reset_irq(dwc_usb_t* dwc) {
 	dwc2_ep0_out_start(dwc);
 
 	/* Clear interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.usbreset = 1;
-	regs->core_interrupts = core_interrupts;
+    dwc_interrupts_t gintsts = {0};
+	gintsts.usbreset = 1;
+	regs->gintsts = gintsts;
 
 //	flush_cpu_cache();
 }
@@ -362,17 +362,17 @@ void dwc_handle_enumdone_irq(dwc_usb_t* dwc) {
     doepctl.epena = 1;
     regs->depout[0].doepctl = doepctl;
 
-    union dwc_dctl dctl = {0};
+    dwc_dctl_t dctl = {0};
     dctl.cgnpinnak = 1;
     regs->dctl = dctl;
 
 	/* high speed */
-	regs->core_configuration.usbtrdtim = 5;
+	regs->gusbcfg.usbtrdtim = 5;
 
 	/* Clear interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.enumdone = 1;
-	regs->core_interrupts = core_interrupts;
+	dwc_interrupts_t gintsts = {0};
+	gintsts.enumdone = 1;
+	regs->gintsts = gintsts;
 }
 
 void dwc_handle_rxstsqlvl_irq(dwc_usb_t* dwc) {
@@ -387,16 +387,16 @@ printf("dwc_handle_rxstsqlvl_irq\n");
 */
 
 	/* Disable the Rx Status Queue Level interrupt */
-    regs->core_interrupt_mask.rxstsqlvl = 0;
+    regs->gintmsk.rxstsqlvl = 0;
 
 	/* Get the Status from the top of the FIFO */
-	 union receive_status_pop rsp = regs->receive_status_pop;
-	if (rsp.epnum != 0)
-		rsp.epnum = 2;
+	 dwc_grxstsp_t grxstsp = regs->grxstsp;
+	if (grxstsp.epnum != 0)
+		grxstsp.epnum = 2;
 	/* Get pointer to EP structure */
 //	ep = &pcd->dwc_eps[status.b.epnum].dwc_ep;
 
-	switch (rsp.pktsts) {
+	switch (grxstsp.pktsts) {
 	case DWC_STS_DATA_UPDT:
 printf("DWC_STS_DATA_UPDT\n");
 /*
@@ -439,12 +439,12 @@ printf("dwc_handle_rxstsqlvl_irq default\n");
 
 
 	/* Enable the Rx Status Queue Level interrupt */
-    regs->core_interrupt_mask.rxstsqlvl = 1;
+    regs->gintmsk.rxstsqlvl = 1;
 
 	/* Clear interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.rxstsqlvl = 1;
-	regs->core_interrupts = core_interrupts;
+	dwc_interrupts_t gintsts = {0};
+	gintsts.rxstsqlvl = 1;
+	regs->gintsts = gintsts;
 }
 
 void dwc_handle_inepintr_irq(dwc_usb_t* dwc) {
@@ -526,9 +526,9 @@ printf("dwc_handle_inepintr_irq\n");
 	}
 #endif
 	/* Clear interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.inepintr = 1;
-	regs->core_interrupts = core_interrupts;
+	dwc_interrupts_t gintsts = {0};
+	gintsts.inepintr = 1;
+	regs->gintsts = gintsts;
 }
 
 /*
@@ -579,9 +579,9 @@ printf("dwc_handle_outepintr_irq\n");
 	ep_intr >>= DWC_EP_OUT_SHIFT;
 
 	/* Clear the interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.outepintr = 1;
-	regs->core_interrupts = core_interrupts;
+	dwc_interrupts_t gintsts = {0};
+	gintsts.outepintr = 1;
+	regs->gintsts = gintsts;
 	regs->daint = 0xFFFF0000;
 
 	while (ep_intr) {
@@ -699,9 +699,9 @@ printf("dwc_handle_nptxfempty_irq\n");
 #endif
 
 	/* Clear interrupt */
-	union dwc_core_interrupts core_interrupts = {0};
-	core_interrupts.nptxfempty = 1;
-	regs->core_interrupts = core_interrupts;
+	dwc_interrupts_t gintsts = {0};
+	gintsts.nptxfempty = 1;
+	regs->gintsts = gintsts;
 }
 
 static void dwc_request_queue(void* ctx, usb_request_t* req) {

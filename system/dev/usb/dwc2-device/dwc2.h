@@ -36,7 +36,7 @@
 #include <zircon/process.h>
 
 // TODO - move to dwc_usb_t
-extern volatile struct dwc_regs* regs;
+extern dwc_regs_t* regs;
 
 typedef enum dwc_ep0_state {
     EP0_STATE_DISCONNECT,
@@ -47,18 +47,7 @@ typedef enum dwc_ep0_state {
     EP0_STATE_STALL,
 } dwc_ep0_state_t;
 
-typedef struct dwc_usb_device {
-    mtx_t devmtx;
-
-    usb_speed_t speed;
-    uint32_t hub_address;
-    int port;
-    uint32_t device_id;
-
-    list_node_t endpoints;
-} dwc_usb_device_t;
-
-typedef struct dwc_usb {
+typedef struct {
     zx_device_t* zxdev;
     usb_bus_interface_t bus;
     zx_handle_t irq_handle;

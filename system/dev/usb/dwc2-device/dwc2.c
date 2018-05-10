@@ -1,20 +1,15 @@
-// Copyright 2016 The Fuchsia Authors. All rights reserved.
+// Copyright 2018 The Fuchsia Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "dwc2.h"
 
-#define PAGE_MASK_4K (0xFFF)
-#define USB_PAGE_START (USB_BASE & (~PAGE_MASK_4K))
-#define USB_PAGE_SIZE (0x1000)
-#define PAGE_REG_DELTA (USB_BASE - USB_PAGE_START)
-
 #define MMIO_INDEX  0
 #define IRQ_INDEX   0
 
+dwc_regs_t* regs = NULL;
 
-volatile struct dwc_regs* regs = NULL;
-
+/*
 static zx_status_t wait_bits(volatile uint32_t* ptr, uint32_t bits, uint32_t expected) {
     for (int i = 0; i < 1000; i++) {
         if ((*ptr & bits) == expected) {
@@ -24,28 +19,39 @@ static zx_status_t wait_bits(volatile uint32_t* ptr, uint32_t bits, uint32_t exp
     }
     return ZX_ERR_TIMED_OUT;
 }
+*/
 
 static zx_status_t usb_dwc_softreset_core(void) {
+/* do we need this?
     zx_status_t status = wait_bits(&regs->core_reset.val, DWC_AHB_MASTER_IDLE, DWC_AHB_MASTER_IDLE);
     if (status != ZX_OK) {
         return status;
     }
+*/
+    dwc_grstctl_t grstctl = {0};
+    grstctl.csftrst = 1;
+    regs->grstctl = grstctl;
 
-    regs->core_reset.val = DWC_SOFT_RESET;
-
-    return wait_bits(&regs->core_reset.val, DWC_SOFT_RESET, 0);
+    for (int i = 0; i < 1000; i++) {
+        if (regs->grstctl.csftrst == 0) {
+            return ZX_OK;
+        }
+        usleep(1000);
+    }
+    return ZX_ERR_TIMED_OUT;
 }
 
 static zx_status_t usb_dwc_setupcontroller(void) {
     const uint32_t rx_words = 1024;
     const uint32_t tx_words = 1024;
-    const uint32_t ptx_words = 1024;
+//    const uint32_t ptx_words = 1024;
 
-    regs->rx_fifo_size = rx_words;
-    regs->nonperiodic_tx_fifo_size = (tx_words << 16) | rx_words;
-    regs->host_periodic_tx_fifo_size = (ptx_words << 16) | (rx_words + tx_words);
+    regs->grxfsiz = rx_words;
+    regs->gnptxfsiz = (tx_words << 16) | rx_words;
+//??    regs->host_periodic_tx_fifo_size = (ptx_words << 16) | (rx_words + tx_words);
 
-    regs->ahb_configuration |= DWC_AHB_DMA_ENABLE | BCM_DWC_AHB_AXI_WAIT;
+    regs->gahbcfg.hburstlen = 1;
+    regs->gahbcfg.dmaenable = 1;
 
     // device role initialization
     regs->dctl.sftdiscon = 1;
@@ -63,24 +69,21 @@ static zx_status_t usb_dwc_setupcontroller(void) {
     }
 
     // reset phy clock
-    regs->power = 0;
+    regs->pcgcctl.val = 0;
 
-    union dwc_core_interrupts core_interrupt_mask = {0};
+    dwc_interrupts_t gintmsk = {0};
 
-//    core_interrupt_mask.host_channel_intr = 1;
-//    core_interrupt_mask.port_intr = 1;
-    core_interrupt_mask.rxstsqlvl = 1;
-    core_interrupt_mask.usbreset = 1;
-    core_interrupt_mask.enumdone = 1;
-    core_interrupt_mask.inepintr = 1;
-    core_interrupt_mask.outepintr = 1;
-//    core_interrupt_mask.sof_intr = 1;
-    core_interrupt_mask.usbsuspend = 1;
+    gintmsk.rxstsqlvl = 1;
+    gintmsk.usbreset = 1;
+    gintmsk.enumdone = 1;
+    gintmsk.inepintr = 1;
+    gintmsk.outepintr = 1;
+//    gintmsk.sof_intr = 1;
+    gintmsk.usbsuspend = 1;
 
-printf("enabling interrupts %08x\n", core_interrupt_mask.val);
+printf("enabling interrupts %08x\n", gintmsk.val);
 
-    regs->core_interrupt_mask = core_interrupt_mask;
-
+    regs->gintmsk = gintmsk;
 
 /*
     union dwc_core_configuration core_configuration;
@@ -91,7 +94,7 @@ printf("core_configuration: %08x\n", core_configuration.val);
     regs->core_configuration = core_configuration;
 */
 
-    regs->ahb_configuration |= DWC_AHB_INTERRUPT_ENABLE;
+    regs->gahbcfg.glblintrmsk = 1;
 
     return ZX_OK;
 }
@@ -145,7 +148,7 @@ static zx_protocol_device_t dwc_device_proto = {
 };
 
 static void dwc_handle_irq(dwc_usb_t* dwc) {
-    union dwc_core_interrupts interrupts = regs->core_interrupts;
+    dwc_interrupts_t interrupts = regs->gintsts;
 printf("XXXXXXXXXXXXXXXXX dwc_handle_irq: %08x\n", interrupts.val);
 
 /*
@@ -216,7 +219,7 @@ uint32_t wkupintr          :1;
         dwc_handle_reset_irq(dwc);
     }
     if (interrupts.usbsuspend) {
-        regs->core_interrupts.usbsuspend = 1;
+        regs->gintsts.usbsuspend = 1;
     }
     if (interrupts.enumdone) {
         dwc_handle_enumdone_irq(dwc);
@@ -229,8 +232,6 @@ uint32_t wkupintr          :1;
         printf("outepintr\n");
         dwc_handle_outepintr_irq(dwc);
     }
-
-//    regs->core_interrupts = interrupts;
 }
 
 // Thread to handle interrupts.
