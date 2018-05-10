@@ -15,138 +15,6 @@
  */
 #define DWC_NUM_CHANNELS 8
 
-#define MAX_EPS_CHANNELS 16
-
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		uint32_t mps        : 11;
-#define DWC_DEP0CTL_MPS_64	 0
-#define DWC_DEP0CTL_MPS_32	 1
-#define DWC_DEP0CTL_MPS_16	 2
-#define DWC_DEP0CTL_MPS_8	 3
-		uint32_t nextep     : 4;
-		uint32_t usbactep   : 1;
-		uint32_t dpid       : 1;
-		uint32_t naksts     : 1;
-		uint32_t eptype     : 2;
-		uint32_t snp        : 1;
-		uint32_t stall      : 1;
-		uint32_t txfnum     : 4;
-		uint32_t cnak       : 1;
-		uint32_t snak       : 1;
-		uint32_t setd0pid   : 1;
-		uint32_t setd1pid   : 1;
-		uint32_t epdis      : 1;
-		uint32_t epena      : 1;
-	};
-} depctl_t;
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		/* Transfer size */
-		uint32_t xfersize   : 19;
-		/* Packet Count */
-		uint32_t pktcnt     : 10;
-		/* Multi Count */
-		uint32_t mc         : 2;
-		uint32_t reserved   : 1;
-	};
-} deptsiz_t;
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		/* Transfer size */
-		uint32_t xfersize   : 7;
-		uint32_t reserved   : 12;
-		/* Packet Count */
-		uint32_t pktcnt     : 2;
-		uint32_t reserved2  : 8;
-		/* Setup Packet Count */
-		uint32_t supcnt     : 2;
-		uint32_t reserved3  : 1;
-	};
-} deptsiz0_t;
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		/* Transfer complete mask */
-		uint32_t xfercompl      : 1;
-		/* Endpoint disable mask */
-		uint32_t epdisabled     : 1;
-		/* AHB Error mask */
-		uint32_t ahberr         : 1;
-		/* TimeOUT Handshake mask (non-ISOC EPs) */
-		uint32_t timeout        : 1;
-		/* IN Token received with TxF Empty mask */
-		uint32_t intktxfemp     : 1;
-		/* IN Token Received with EP mismatch mask */
-		uint32_t intknepmis     : 1;
-		/* IN Endpoint NAK Effective mask */
-		uint32_t inepnakeff     : 1;
-		uint32_t reserved       : 1;
-		uint32_t txfifoundrn    : 1;
-		/* BNA Interrupt mask */
-		uint32_t bna            : 1;
-		uint32_t reserved2      : 3;
-		/* BNA Interrupt mask */
-		uint32_t nak:1;
-		uint32_t reserved3      : 18;
-	};
-} diepint_t;
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		/* Transfer complete */
-		uint32_t xfercompl      : 1;
-		/* Endpoint disable  */
-		uint32_t epdisabled     : 1;
-		/* AHB Error */
-		uint32_t ahberr         : 1;
-		/* Setup Phase Done (contorl EPs) */
-		uint32_t setup          : 1;
-		/* OUT Token Received when Endpoint Disabled */
-		uint32_t outtknepdis    : 1;
-		uint32_t stsphsercvd    : 1;
-		/* Back-to-Back SETUP Packets Received */
-		uint32_t back2backsetup : 1;
-		uint32_t reserved       : 1;
-		/* OUT packet Error */
-		uint32_t outpkterr      : 1;
-		/* BNA Interrupt */
-		uint32_t bna            : 1;
-
-		uint32_t reserved2      : 1;
-		/* Packet Drop Status */
-		uint32_t pktdrpsts      : 1;
-		/* Babble Interrupt */
-		uint32_t babble         : 1;
-		/* NAK Interrupt */
-		uint32_t nak            : 1;
-		/* NYET Interrupt */
-		uint32_t nyet           : 1;
-
-		uint32_t reserved3      : 17;
-	};
-} doepint_t;
-
-typedef volatile union {
-	uint32_t val;
-	struct {
-		uint32_t nptxfspcavail      :16;
-		uint32_t nptxqspcavail      :8;
-		uint32_t nptxqtop_terminate :1;
-		uint32_t nptxqtop_token     :2;
-		uint32_t nptxqtop_chnep     :4;
-		uint32_t reserved:          1;
-	};
-} gnptxsts_t;
-
 /**
  * Layout of the registers of the DesignWare Hi-Speed USB 2.0 On-The-Go
  * Controller.  There is no official documentation for these; however, the
@@ -203,71 +71,27 @@ struct dwc_regs {
  */
 #define DWC_AHB_DMA_ENABLE        (1 << 5)
 
-    /* 0x00c : Core USB configuration */
-    union dwc_core_configuration {
-        uint32_t val;
-        struct {
-            uint32_t toutcal                    : 3;
-            uint32_t phyif                      : 1;
-            uint32_t ulpi_utmi_sel              : 1;
-            uint32_t fsintf                     : 1;
-            uint32_t physel                     : 1;
-            uint32_t ddrsel                     : 1;
-            uint32_t srpcap                     : 1;
-            uint32_t hnpcap                     : 1;
-            uint32_t usbtrdtim                  : 4;
-            uint32_t reserved1                  : 1;
-            uint32_t phylpwrclksel              : 1;
-            uint32_t otgutmifssel               : 1;
-            uint32_t ulpi_fsls                  : 1;
-            uint32_t ulpi_auto_res              : 1;
-            uint32_t ulpi_clk_sus_m             : 1;
-            uint32_t ulpi_ext_vbus_drv          : 1;
-            uint32_t ulpi_int_vbus_indicator    : 1;
-            uint32_t term_sel_dl_pulse          : 1;
-            uint32_t indicator_complement       : 1;
-            uint32_t indicator_pass_through     : 1;
-            uint32_t ulpi_int_prot_dis          : 1;
-            uint32_t ic_usb_cap                 : 1;
-            uint32_t ic_traffic_pull_remove     : 1;
-            uint32_t tx_end_delay               : 1;
-            uint32_t force_host_mode            : 1;
-            uint32_t force_dev_mode             : 1;
-            uint32_t reserved31                 : 1;
-        };
-    } core_configuration;
+    /* 0x01c : Core USB configuration */
+    uint32_t core_usb_configuration;
+
 
     /**
      * 0x010 : Core Reset Register.
      *
      * Software can use this register to cause the DWC to reset itself.
      */
-    union dwc_core_reset {
-        uint32_t val;
-        struct {
-		    /* Core Soft Reset */
-    		uint32_t csftrst    : 1;
-    		/* Hclk Soft Reset */
-    		uint32_t hsftrst    : 1;
-    		/* Host Frame Counter Reset */
-    		uint32_t hstfrm     : 1;
-    		/* In Token Sequence Learning Queue Flush */
-    		uint32_t intknqflsh : 1;
-    		/* RxFIFO Flush */
-    		uint32_t rxfflsh    : 1;
-    		/* TxFIFO Flush */
-    		uint32_t txfflsh    : 1;
-    		/* TxFIFO Number */
-    		uint32_t txfnum     : 5;
-    		uint32_t reserved   : 19;
-    		/* DMA Request Signal */
-    		uint32_t dmareq     : 1;
-    		/* AHB Master Idle */
-    		uint32_t ahbidle    : 1;
-        };
-    } core_reset;
+    uint32_t core_reset;
 
+    /**
+     * TODO
+     */
 #define DWC_AHB_MASTER_IDLE (1 << 31)
+
+    /**
+     * Write 1 to this location in the Core Reset Register to start a soft
+     * reset.  This bit will then be cleared by the hardware when the reset is
+     * complete.
+     */
 #define DWC_SOFT_RESET      (1 << 0)
 
     /**
@@ -283,30 +107,14 @@ struct dwc_regs {
     union dwc_core_interrupts {
         uint32_t val;
         struct {
-            uint32_t curmode           : 1;
-            uint32_t modemismatch      : 1;
-            uint32_t otgintr           : 1;
+            uint32_t stuff             : 3;
+
+            /**
+             * Start of Frame.  TODO
+             */
             uint32_t sof_intr          : 1;
-            uint32_t rxstsqlvl         : 1;
-            uint32_t nptxfempty        : 1;
-            uint32_t ginnakeff         : 1;
-            uint32_t goutnakeff        : 1;
-            uint32_t ulpickint         : 1;
-            uint32_t i2cintr           : 1;
-            uint32_t erlysuspend       : 1;
-            uint32_t usbsuspend        : 1;
-            uint32_t usbreset          : 1;
-            uint32_t enumdone          : 1;
-            uint32_t isooutdrop        : 1;
-            uint32_t eopframe          : 1;
-            uint32_t restoredone       : 1;
-            uint32_t epmismatch        : 1;
-            uint32_t inepintr          : 1;
-            uint32_t outepintr         : 1;
-            uint32_t incomplisoin      : 1;
-            uint32_t incomplisoout     : 1;
-            uint32_t fetsusp           : 1;
-            uint32_t resetdet          : 1;
+
+            uint32_t morestuff         : 20;
 
             /**
              * Host port status changed.  Software must examine the Host Port
@@ -324,12 +132,7 @@ struct dwc_regs {
              */
             uint32_t host_channel_intr : 1;     /* Bit 25 */
 
-            uint32_t ptxfempty         : 1;
-            uint32_t lpmtranrcvd       : 1;
-            uint32_t conidstschng      : 1;
-            uint32_t disconnect        : 1;
-            uint32_t sessreqintr       : 1;
-            uint32_t wkupintr          : 1;
+            uint32_t evenmorestuff     : 6;
         };
     } core_interrupts;
 
@@ -346,23 +149,8 @@ struct dwc_regs {
     uint32_t receive_status;
 
     /* 0x020 : Receive Status Queue Read & Pop */
-    union receive_status_pop {
-        uint32_t val;
-        struct {
-		uint32_t epnum      : 4;
-		uint32_t bcnt       : 11;
-		uint32_t dpid       : 2;
-#define DWC_STS_DATA_UPDT		0x2	// OUT Data Packet
-#define DWC_STS_XFER_COMP		0x3	// OUT Data Transfer Complete
-#define DWC_DSTS_GOUT_NAK		0x1	// Global OUT NAK
-#define DWC_DSTS_SETUP_COMP		0x4	// Setup Phase Complete
-#define DWC_DSTS_SETUP_UPDT 0x6	// SETUP Packet
-		uint32_t pktsts     : 4;
-		uint32_t fn         : 4;
-		uint32_t reserved   : 7;
-        };
-    } receive_status_pop;
-  
+    uint32_t receive_status_pop;
+
     /**
      * 0x024 : Receive FIFO Size Register.
      *
@@ -389,7 +177,7 @@ struct dwc_regs {
     uint32_t nonperiodic_tx_fifo_size;
 
     /* 0x02c : Non Periodic Transmit FIFO/Queue Status Register */
-    gnptxsts_t gnptxsts;
+    uint32_t nonperiodic_tx_fifo_status;
 
     /* 0x030 */
     uint32_t i2c_control;
@@ -1068,217 +856,9 @@ struct dwc_regs {
 
     /**@}*/
 
-    /* 0x800 : Device Configuration Register */
-    union dwc_dcfg {
-        uint32_t val;
-        struct {
-            uint32_t devspd         : 2;
-            uint32_t nzstsouthshk   : 1;
-            uint32_t ena32khzs      : 1;
-            uint32_t devaddr        : 7;
-            uint32_t perfrint       : 2;
-            uint32_t endevoutnak    : 1;
-            uint32_t reserved       : 4;
-            uint32_t epmscnt        : 5;
-            uint32_t descdma        : 1;
-            uint32_t perschintvl    : 2;
-            uint32_t resvalid       : 6;
-        };
-    } dcfg;
+    /* 0x800 */
 
-    /* 0x804 : Device Control Register */
-    union dwc_dctl {
-        uint32_t val;
-        struct {
-            /* Remote Wakeup */
-            uint32_t rmtwkupsig     : 1;
-            /* Soft Disconnect */
-            uint32_t sftdiscon      : 1;
-            /* Global Non-Periodic IN NAK Status */
-            uint32_t gnpinnaksts    : 1;
-            /* Global OUT NAK Status */
-            uint32_t goutnaksts     : 1;
-            /* Test Control */
-            uint32_t tstctl         : 3;
-            /* Set Global Non-Periodic IN NAK */
-            uint32_t sgnpinnak      : 1;
-            /* Clear Global Non-Periodic IN NAK */
-            uint32_t cgnpinnak      : 1;
-            /* Set Global OUT NAK */
-            uint32_t sgoutnak       : 1;
-            /* Clear Global OUT NAK */
-            uint32_t cgoutnak       : 1;
-            /* Power-On Programming Done */
-            uint32_t pwronprgdone   : 1;
-            /* Reserved */
-            uint32_t reserved       : 1;
-            /* Global Multi Count */
-            uint32_t gmc            : 2;
-            /* Ignore Frame Number for ISOC EPs */
-            uint32_t ifrmnum        : 1;
-            /* NAK on Babble */
-            uint32_t nakonbble      : 1;
-            /* Enable Continue on BNA */
-            uint32_t encontonbna    : 1;
-            /* Enable deep sleep besl reject feature*/
-            uint32_t besl_reject    : 1;
-            uint32_t reserved2      : 13;
-        };
-    } dctl;
-
-    /* 0x808 : Device Status Register */
-    union dwc_dsts {
-        uint32_t val;
-        struct {
-            /* Suspend Status */
-            uint32_t suspsts    : 1;
-            /* Enumerated Speed */
-            uint32_t enumspd    : 2;
-            /* Erratic Error */
-            uint32_t errticerr  : 1;
-            uint32_t reserved   : 4;
-            /* Frame or Microframe Number of the received SOF */
-            uint32_t soffn      : 14;
-            uint32_t reserved2  : 10;
-        };
-    } dsts;
-
-    uint32_t unused;
-
-    /* 0x810 : Device IN Endpoint Common Interrupt Mask Register */
-    union dwc_diepmsk {
-        uint32_t val;
-        struct {
-    		/* Transfer complete mask */
-    		uint32_t xfercompl      : 1;
-    		/* Endpoint disable mask */
-    		uint32_t epdisabled     : 1;
-    		/* AHB Error mask */
-    		uint32_t ahberr         : 1;
-    		/* TimeOUT Handshake mask (non-ISOC EPs) */
-    		uint32_t timeout        : 1;
-    		/* IN Token received with TxF Empty mask */
-    		uint32_t intktxfemp     : 1;
-    		/* IN Token Received with EP mismatch mask */
-    		uint32_t intknepmis     : 1;
-    		/* IN Endpoint NAK Effective mask */
-    		uint32_t inepnakeff     : 1;
-    		uint32_t emptyintr      : 1;
-    		uint32_t txfifoundrn    : 1;
-    		/* BNA Interrupt mask */
-    		uint32_t bna            : 1;
-    		uint32_t reserved       : 3;
-    		/* BNA Interrupt mask */
-    		uint32_t nak            : 1;
-    		uint32_t reserved2      : 18;
-        };
-    } diepmsk;
-    
-    /* 0x814 : Device OUT Endpoint Common Interrupt Mask Register */
-    union dwc_doepmsk {
-        uint32_t val;
-        struct {
-            /* Transfer complete */
-            uint32_t xfercompl      : 1;
-            /* Endpoint disable  */
-            uint32_t epdisabled     : 1;
-            /* AHB Error */
-            uint32_t ahberr         : 1;
-            /* Setup Phase Done (control EPs) */
-            uint32_t setup          : 1;
-            /* OUT Token Received when Endpoint Disabled */
-            uint32_t outtknepdis    : 1;
-            uint32_t stsphsercvd    : 1;
-            /* Back-to-Back SETUP Packets Received */
-            uint32_t back2backsetup : 1;
-            uint32_t reserved       : 1;
-            /* OUT packet Error */
-            uint32_t outpkterr      : 1;
-            /* BNA Interrupt */
-            uint32_t bna            : 1;
-            uint32_t reserved2      : 1;
-            /* Packet Drop Status */
-            uint32_t pktdrpsts      : 1;
-            /* Babble Interrupt */
-            uint32_t babble         : 1;
-            /* NAK Interrupt */
-            uint32_t nak            : 1;
-            /* NYET Interrupt */
-            uint32_t nyet           : 1;
-            /* Bit indicating setup packet received */
-            uint32_t sr             : 1;
-            uint32_t reserved3      : 16;
-        };
-    } doepmsk;
-
-    /* 0x818 : Device All Endpoints Interrupt Register */
-    uint32_t daint;
-    /* 0x81C : Device All Endpoints Interrupt Mask Register */
-    uint32_t daintmsk;
-#define DWC_EP_IN_SHIFT  0
-#define DWC_EP_OUT_SHIFT 16
-
-    /* 0x820 : Device IN Token Queue Read Register-1  */
-    uint32_t dtknqr1;
-    /* 0x824 : Device IN Token Queue Read Register-2  */
-    uint32_t dtknqr2;
-    /* 0x828 : Device VBUS discharge Register  */
-    uint32_t dvbusdis;
-    /* 0x82C : Device VBUS pulse Register  */
-    uint32_t dvbuspulse;
-    /* 0x830 : Device IN Token Queue Read Register-3 / Device Thresholding control register */
-    uint32_t dtknqr3_dthrctl;
-    /* 0x834 : Device IN Token Queue Read Register-4 / Device IN EPs empty Inr. Mask Register */
-    uint32_t dtknqr4_fifoemptymsk;
-    /* 0x838 : Device Each Endpoint Interrupt Register  */
-    uint32_t deachint;
-    /* 0x83C : Device Each Endpoint Interrupt Mask Register  */
-    uint32_t deachintmsk;
-    /* 0x840 : Device Each In Endpoint Interrupt Mask Register  */
-    uint32_t diepeachintmsk[MAX_EPS_CHANNELS];
-    /* 0x880 : Device Each Out Endpoint Interrupt Mask Register  */
-    uint32_t doepeachintmsk[MAX_EPS_CHANNELS];
-
-    uint32_t reserved_0x8C0[(0x900 - 0x8C0) / sizeof(uint32_t)];
-
-    /* 0x900 : Device EP IN Registers  */
-    struct {
-    	/* Device IN Endpoint Control Register */
-    	depctl_t diepctl;
-
-    	uint32_t reserved;
-    	/* Device IN Endpoint Interrupt Register */
-    	diepint_t diepint;
-    	uint32_t reserved2;
-    	/* Device IN Endpoint Transfer Size */
-    	deptsiz_t dieptsiz;
-    	/* Device IN Endpoint DMA Address Register */
-    	uint32_t diepdma;
-    	/* Device IN Endpoint Transmit FIFO Status Register */
-    	uint32_t dtxfsts;
-    	/* Device IN Endpoint DMA Buffer Register */
-    	uint32_t diepdmab;
-    } depin[MAX_EPS_CHANNELS];
-
-    /* 0xB00 : Device EP OUT Registers  */
-    struct {
-    	/* Device OUT Endpoint Control Register */
-    	depctl_t doepctl;
-
-    	uint32_t reserved;
-    	/* Device OUT Endpoint Interrupt Register */
-    	doepint_t doepint;
-    	uint32_t reserved2;
-    	/* Device OUT Endpoint Transfer Size Register */
-    	deptsiz_t doeptsiz;
-    	/* Device OUT Endpoint DMA Address Register */
-    	uint32_t doepdma;
-    	uint32_t reserved3;
-    	/* Device OUT Endpoint DMA Buffer Register */
-    	uint32_t doepdmab;
-    } depout[MAX_EPS_CHANNELS];
-
-    uint32_t reserved_0xD00[(0xE00 - 0xD00) / sizeof(uint32_t)];
+    uint32_t reserved_0x800[(0xe00 - 0x800) / sizeof(uint32_t)];
 
     /* 0xe00 : Power and Clock Gating Control Register */
     uint32_t power;

@@ -9,9 +9,7 @@ MODULE := $(LOCAL_DIR)
 MODULE_TYPE := driver
 
 MODULE_SRCS += \
-    $(LOCAL_DIR)/dwc2.c \
-    $(LOCAL_DIR)/dwc2-device.c \
-    $(LOCAL_DIR)/dwc2-host.c \
+    $(LOCAL_DIR)/dwc2.c
 
 MODULE_STATIC_LIBS := system/ulib/ddk \
                       system/ulib/pretty \
@@ -20,5 +18,7 @@ MODULE_STATIC_LIBS := system/ulib/ddk \
 MODULE_LIBS := system/ulib/driver \
                system/ulib/c \
                system/ulib/zircon \
+
+MODULE_HEADER_DEPS := third_party/ulib/usb-dwc-regs
 
 include make/module.mk
