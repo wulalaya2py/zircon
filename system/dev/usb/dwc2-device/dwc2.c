@@ -271,12 +271,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
         return ZX_ERR_NO_MEMORY;
     }
 
-    usb_dwc->free_channel_completion = COMPLETION_INIT;
-    usb_dwc->free_channels = ALL_CHANNELS_FREE;
-    usb_dwc->next_device_address = 1;
-    usb_dwc->DBG_reqid = 0x1;
-    usb_request_pool_init(&usb_dwc->free_usb_reqs);
-
     // Carve out some address space for this device.
     size_t mmio_size;
     zx_handle_t mmio_handle = ZX_HANDLE_INVALID;
@@ -301,12 +295,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     }
 
     usb_dwc->parent = dev;
-    list_initialize(&usb_dwc->rh_req_head);
-
-    // Initialize the free list.
-    mtx_lock(&usb_dwc->free_req_mtx);
-    list_initialize(&usb_dwc->free_reqs);
-    mtx_unlock(&usb_dwc->free_req_mtx);
 
     if ((status = usb_dwc_softreset_core()) != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: failed to reset core.\n");
@@ -318,21 +306,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
         goto error_return;
     }
 
-    // Initialize all the channel completions.
-    for (size_t i = 0; i < NUM_HOST_CHANNELS; i++) {
-        usb_dwc->channel_complete[i] = COMPLETION_INIT;
-        usb_dwc->sof_waiters[i] = COMPLETION_INIT;
-    }
-
-    // We create a mock device at device_id = 0 for enumeration purposes.
-    // Any new device that connects to the bus is assigned this ID until we
-    // set its address.
-    if ((status = create_default_device(usb_dwc)) != ZX_OK) {
-        zxlogf(ERROR, "usb_dwc: failed to create default device. "
-                "retcode = %d\n", status);
-        goto error_return;
-    }
-
     status = io_buffer_init(&usb_dwc->ep0_buffer,  usb_dwc->bti_handle, 65536,
                             IO_BUFFER_RW | IO_BUFFER_CONTIG);
     if (status != ZX_OK) {
@@ -340,16 +313,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
         goto error_return;
     }
 
-/*
-    device_add_args_t args = {
-        .version = DEVICE_ADD_ARGS_VERSION,
-        .name = "dwc2",
-        .ctx = usb_dwc,
-        .ops = &dwc_device_proto,
-        .proto_id = ZX_PROTOCOL_USB_HCI,
-        .proto_ops = &dwc_hci_protocol,
-    };
-*/
    device_add_args_t args = {
         .version = DEVICE_ADD_ARGS_VERSION,
         .name = "dwc2",
@@ -363,12 +326,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
         free(usb_dwc);
         return status;
     }
-
-    // Thread that responds to requests for the root hub.
-    thrd_t root_hub_req_worker;
-    thrd_create_with_name(&root_hub_req_worker, dwc_root_hub_req_worker,
-                          usb_dwc, "dwc_root_hub_req_worker");
-    thrd_detach(root_hub_req_worker);
 
     thrd_t irq_thread;
     thrd_create_with_name(&irq_thread, dwc_irq_thread, usb_dwc,
