@@ -21,6 +21,4 @@ MODULE_LIBS := system/ulib/driver \
                system/ulib/c \
                system/ulib/zircon \
 
-MODULE_HEADER_DEPS := third_party/ulib/usb-dwc-regs
-
 include make/module.mk

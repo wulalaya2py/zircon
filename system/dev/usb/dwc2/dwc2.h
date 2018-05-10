@@ -30,7 +30,7 @@
 #include <zircon/hw/usb.h>
 #include <sync/completion.h>
 
-#include <dwc2/usb_dwc_regs.h>
+#include "usb_dwc_regs.h"
 
 #include <zircon/listnode.h>
 #include <zircon/process.h>
