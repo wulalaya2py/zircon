@@ -6,12 +6,16 @@
 
 #include "dwc2.h"
 
+#define DWC_REG_DATA_FIFO_START 0x1000
+#define DWC_REG_DATA_FIFO(ep)	((uint8_t*)regs + (ep + 1) * 0x1000)
+
+
 static void dwc2_ep0_out_start(dwc_usb_t* dwc)
 {
     printf("dwc2_ep0_out_start\n");
 
-	deptsiz0_t doeptsize0 = {0};
-	depctl_t doepctl = {0};
+	dwc_deptsiz0_t doeptsize0 = {0};
+	dwc_depctl_t doepctl = {0};
 
 	doeptsize0.supcnt = 3;
 	doeptsize0.pktcnt = 1;
@@ -76,8 +80,8 @@ static void dwc_ep_start_transfer(dwc_usb_t* dwc, unsigned ep_num, bool is_in, z
                                   size_t length, bool send_zlp) {
 printf("ZZZZZZZ dwc_ep_start_transfer\n");
 
-	depctl_t depctl;
-	volatile deptsiz_t* deptsiz;
+	dwc_depctl_t depctl;
+	volatile dwc_deptsiz_t* deptsiz;
 //	uint32_t ep_mps = 64; // _ep->maxpacket;
 
 //    _ep->total_len = _ep->xfer_len;
@@ -300,7 +304,7 @@ void dwc_handle_reset_irq(dwc_usb_t* dwc) {
 	regs->dctl.rmtwkupsig = 1;
 
 	for (int i = 0; i < MAX_EPS_CHANNELS; i++) {
-	    depctl_t diepctl = regs->depin[i].diepctl;
+	     dwc_depctl_t diepctl = regs->depin[i].diepctl;
 
         if (diepctl.epena) {
             // disable all active IN EPs
@@ -354,11 +358,11 @@ void dwc_handle_enumdone_irq(dwc_usb_t* dwc) {
 
     dwc->ep0_state = EP0_STATE_IDLE;
 
-    depctl_t diepctl = regs->depin[0].diepctl;
+    dwc_depctl_t diepctl = regs->depin[0].diepctl;
     diepctl.mps = DWC_DEP0CTL_MPS_64;
     regs->depin[0].diepctl = diepctl;
 
-    depctl_t doepctl = regs->depout[0].doepctl;
+    dwc_depctl_t doepctl = regs->depout[0].doepctl;
     doepctl.epena = 1;
     regs->depout[0].doepctl = doepctl;
 
@@ -531,20 +535,22 @@ printf("dwc_handle_inepintr_irq\n");
 	regs->gintsts = gintsts;
 }
 
+static void dwc_otg_ep_write_packet(dwc_usb_t* dwc, int epnum, uint32_t byte_count, uint32_t dword_count) {
 /*
-static void dwc_otg_ep_write_packet(dwc_ep_t *_ep, u32 byte_count, u32 dword_count) {
-	u32 i;
-	u32 fifo;
-	u32 temp_data;
-	u8 *data_buff = _ep->xfer_buff;
-	u64 t_64 = (u64)_ep->xfer_buff;
+	uint32_t i;
+	uint32_t fifo;
+	uint32_t temp_data;
+//	uint8_t *data_buff = _ep->xfer_buff;
+    uint8_t *data_buff = io_buffer_virt(&dwc->ep0_buffer);
 
-	if (_ep->xfer_count >= _ep->xfer_len) {
-		ERR("%s() No data for EP%d!!!\n", "dwc_otg_ep_write_packet", _ep->num);
-		return;
-	}
+	uint64_t t_64 = (uint64_t)_ep->xfer_buff;
 
-	fifo = DWC_REG_DATA_FIFO(_ep->num);
+//	if (_ep->xfer_count >= _ep->xfer_len) {
+//		ERR("%s() No data for EP%d!!!\n", "dwc_otg_ep_write_packet", _ep->num);
+//		return;
+//	}
+
+	fifo = DWC_REG_DATA_FIFO(epnum);
 
 	if (t_64 & 0x3) {
 		for (i = 0; i < dword_count; i++) {
@@ -560,14 +566,12 @@ static void dwc_otg_ep_write_packet(dwc_ep_t *_ep, u32 byte_count, u32 dword_cou
 		}
 	}
 
-	_ep->xfer_count += byte_count;
-    _ep->xfer_buff += byte_count;
+//	_ep->xfer_count += byte_count;
+//    _ep->xfer_buff += byte_count;
 
-	flush_cpu_cache();
-
-	return;
-}
+//	flush_cpu_cache();
 */
+}
 
 void dwc_handle_outepintr_irq(dwc_usb_t* dwc) {
 printf("dwc_handle_outepintr_irq\n");
@@ -587,13 +591,13 @@ printf("dwc_handle_outepintr_irq\n");
 	while (ep_intr) {
 		if (ep_intr & 1) {
 printf("dwc_handle_outepintr_irq epnum %u\n", epnum);
-		    doepint_t doepint = regs->depout[epnum].doepint;
+		    dwc_doepint_t doepint = regs->depout[epnum].doepint;
 
 			/* Transfer complete */
 			if (doepint.xfercompl) {
 printf("dwc_handle_outepintr_irq xfercompl\n");
 				/* Clear the bit in DOEPINTn for this interrupt */
-			    doepint_t clear = {0};
+			    dwc_doepint_t clear = {0};
 			    clear.xfercompl = 1;
 			    regs->depout[epnum].doepint = clear;
 
@@ -610,21 +614,21 @@ printf("dwc_handle_outepintr_irq xfercompl\n");
 			if (doepint.epdisabled) {
 printf("dwc_handle_outepintr_irq epdisabled\n");
 				/* Clear the bit in DOEPINTn for this interrupt */
-			    doepint_t clear = {0};
+			    dwc_doepint_t clear = {0};
                 clear.epdisabled = 1;
 			    regs->depout[epnum].doepint = clear;
 			}
 			/* AHB Error */
 			if (doepint.ahberr) {
 printf("dwc_handle_outepintr_irq ahberr\n");
-			    doepint_t clear = {0};
+			    dwc_doepint_t clear = {0};
                 clear.ahberr = 1;
 			    regs->depout[epnum].doepint = clear;
 			}
 			/* Setup Phase Done (contr0l EPs) */
 			if (doepint.setup) {
 printf("dwc_handle_outepintr_irq setup\n");
-			    doepint_t clear = {0};
+			    dwc_doepint_t clear = {0};
                 clear.setup = 1;
 			    regs->depout[epnum].doepint = clear;
 			}
@@ -637,18 +641,47 @@ printf("dwc_handle_outepintr_irq setup\n");
 void dwc_handle_nptxfempty_irq(dwc_usb_t* dwc) {
 printf("dwc_handle_nptxfempty_irq\n");
 
+    int xfer_count = 0;
+    int xfer_len = dwc->cur_setup.wLength;
+    
+	while  (xfer_count < xfer_len) {
+		uint32_t retry = 1000000;
+
+		int len = xfer_len - xfer_count;
+//		if (len > ep->maxpacket)
+//			len = ep->maxpacket;
+
+		int dwords = (len + 3) >> 2;
+
+		while (retry--) {
+        	dwc_gnptxsts_t txstatus = regs->gnptxsts;
+			if (txstatus.nptxqspcavail > 0 && txstatus.nptxfspcavail > dwords)
+				break;
+//			else
+//				flush_cpu_cache();
+		}
+		if (0 == retry) {
+			printf("TxFIFO FULL: Can't trans data to HOST !\n");
+			break;
+		}
+		/* Write the FIFO */
+		dwc_otg_ep_write_packet(dwc, 0, len, dwords);
+
+//		flush_cpu_cache();
+	}
+
 #if 0
-	gnptxsts_data_t txstatus = {0};
-	gintsts_data_t gintsts = {0};
-	dwc_ep_t *ep = 0;
-	depctl_data_t depctl;
-	u32 len = 0;
-	u32 dwords;
-	u32 epnum = 0;
-	pcd_struct_t *pcd = &gadget_wrapper.pcd;
+	dwc_gnptxsts_t txstatus = {0};
+	dwc_interrupts_t gintsts = {0};
+//	dwc_ep_t *ep = 0;
+	dwc_depctl_t depctl;
+	uint32_t len = 0;
+	uint32_t dwords;
+	uint32_t epnum = 0;
+//	pcd_struct_t *pcd = &gadget_wrapper.pcd;
 
     /* Get the epnum from the IN Token Learning Queue. */
-	for (epnum = 0; epnum < NUM_EP; epnum++) {
+	for (epnum = 0; epnum < MAX_EPS_CHANNELS; epnum++) {
 		ep = &pcd->dwc_eps[epnum].dwc_ep;
 
 		/* IN endpoint ? */
@@ -662,7 +695,7 @@ printf("dwc_handle_nptxfempty_irq\n");
 		if (depctl.b.epena != 1)
 			continue;
 
-		flush_cpu_cache();
+//		flush_cpu_cache();
 
 		/* While there is space in the queue and space in the FIFO and
 		 * More data to tranfer, Write packets to the Tx FIFO */

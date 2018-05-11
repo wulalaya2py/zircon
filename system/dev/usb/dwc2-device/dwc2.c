@@ -257,8 +257,6 @@ sleep(2);
 static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     zxlogf(TRACE, "usb_dwc: bind dev = %p\n", dev);
 
-    dwc_usb_t* usb_dwc = NULL;
-
     platform_device_protocol_t proto;
     zx_status_t status = device_get_protocol(dev, ZX_PROTOCOL_PLATFORM_DEV, &proto);
     if (status != ZX_OK) {
@@ -266,10 +264,17 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     }
 
     // Allocate a new device object for the bus.
-    usb_dwc = calloc(1, sizeof(*usb_dwc));
-    if (!usb_dwc) {
-        zxlogf(ERROR, "usb_dwc: bind failed to allocate usb_dwc struct\n");
+    dwc_usb_t* dwc = calloc(1, sizeof(*dwc));
+    if (!dwc) {
+        zxlogf(ERROR, "usb_dwc_bind: bind failed to allocate usb_dwc struct\n");
         return ZX_ERR_NO_MEMORY;
+    }
+
+    for (unsigned i = 0; i < countof(dwc->eps); i++) {
+        dwc_endpoint_t* ep = &dwc->eps[i];
+        ep->ep_num = i;
+        mtx_init(&ep->lock, mtx_plain);
+        list_initialize(&ep->queued_reqs);
     }
 
     // Carve out some address space for this device.
@@ -283,19 +288,19 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     }
 
     // Create an IRQ Handle for this device.
-    status = pdev_map_interrupt(&proto, IRQ_INDEX, &usb_dwc->irq_handle);
+    status = pdev_map_interrupt(&proto, IRQ_INDEX, &dwc->irq_handle);
     if (status != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: bind failed to map usb irq.\n");
         goto error_return;
     }
 
-    status = pdev_get_bti(&proto, 0, &usb_dwc->bti_handle);
+    status = pdev_get_bti(&proto, 0, &dwc->bti_handle);
     if (status != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: bind failed to get bti handle.\n");
         goto error_return;
     }
 
-    usb_dwc->parent = dev;
+    dwc->parent = dev;
 
     if ((status = usb_dwc_softreset_core()) != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: failed to reset core.\n");
@@ -307,7 +312,7 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
         goto error_return;
     }
 
-    status = io_buffer_init(&usb_dwc->ep0_buffer,  usb_dwc->bti_handle, 65536,
+    status = io_buffer_init(&dwc->ep0_buffer,  dwc->bti_handle, 65536,
                             IO_BUFFER_RW | IO_BUFFER_CONTIG);
     if (status != ZX_OK) {
         zxlogf(ERROR, "dwc3_bind: io_buffer_init failed\n");
@@ -317,20 +322,19 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
    device_add_args_t args = {
         .version = DEVICE_ADD_ARGS_VERSION,
         .name = "dwc2",
-        .ctx = usb_dwc,
+        .ctx = dwc,
         .ops = &dwc_device_proto,
         .proto_id = ZX_PROTOCOL_USB_DCI,
         .proto_ops = &dwc_dci_protocol,
     };
 
-    if ((status = device_add(dev, &args, &usb_dwc->zxdev)) != ZX_OK) {
-        free(usb_dwc);
+    if ((status = device_add(dev, &args, &dwc->zxdev)) != ZX_OK) {
+        free(dwc);
         return status;
     }
 
     thrd_t irq_thread;
-    thrd_create_with_name(&irq_thread, dwc_irq_thread, usb_dwc,
-                          "dwc_irq_thread");
+    thrd_create_with_name(&irq_thread, dwc_irq_thread, dwc, "dwc_irq_thread");
     thrd_detach(irq_thread);
 
     zxlogf(TRACE, "usb_dwc: bind success!\n");
@@ -341,10 +345,10 @@ error_return:
         zx_vmar_unmap(zx_vmar_root_self(), (uintptr_t)regs, mmio_size);
     }
     zx_handle_close(mmio_handle);
-    if (usb_dwc) {
-        zx_handle_close(usb_dwc->irq_handle);
-        zx_handle_close(usb_dwc->bti_handle);
-        free(usb_dwc);
+    if (dwc) {
+        zx_handle_close(dwc->irq_handle);
+        zx_handle_close(dwc->bti_handle);
+        free(dwc);
     }
 
     return status;

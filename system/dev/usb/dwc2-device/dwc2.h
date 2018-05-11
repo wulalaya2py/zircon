@@ -35,6 +35,8 @@
 #include <zircon/listnode.h>
 #include <zircon/process.h>
 
+#define DWC_MAX_EPS    32
+
 // TODO - move to dwc_usb_t
 extern dwc_regs_t* regs;
 
@@ -48,6 +50,28 @@ typedef enum dwc_ep0_state {
 } dwc_ep0_state_t;
 
 typedef struct {
+    list_node_t queued_reqs;    // requests waiting to be processed
+    usb_request_t* current_req; // request currently being processed
+    uint32_t txn_offset;
+    uint32_t txn_length;    
+
+    // Used for synchronizing endpoint state
+    // and ep specific hardware registers
+    // This should be acquired before dwc3_t.lock
+    // if acquiring both locks.
+    mtx_t lock;
+
+    uint16_t max_packet_size;
+    uint8_t ep_num;
+    bool enabled;
+    uint8_t type;           // control, bulk, interrupt or isochronous
+    uint8_t interval;
+
+    bool got_not_ready;
+    bool stalled;
+} dwc_endpoint_t;
+
+typedef struct {
     zx_device_t* zxdev;
     usb_bus_interface_t bus;
     zx_handle_t irq_handle;
@@ -56,6 +80,8 @@ typedef struct {
     zx_device_t* parent;
 
     // device stuff
+    dwc_endpoint_t eps[DWC_MAX_EPS];
+
     io_buffer_t ep0_buffer;
     usb_dci_interface_t dci_intf;
     dwc_ep0_state_t ep0_state;

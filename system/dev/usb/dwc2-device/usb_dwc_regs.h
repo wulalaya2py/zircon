@@ -157,7 +157,7 @@ typedef union {
 		uint32_t epdis      : 1;
 		uint32_t epena      : 1;
 	};
-} depctl_t;
+} dwc_depctl_t;
 
 typedef union {
 	uint32_t val;
@@ -170,7 +170,7 @@ typedef union {
 		uint32_t mc         : 2;
 		uint32_t reserved   : 1;
 	};
-} deptsiz_t;
+} dwc_deptsiz_t;
 
 typedef union {
 	uint32_t val;
@@ -185,7 +185,7 @@ typedef union {
 		uint32_t supcnt     : 2;
 		uint32_t reserved3  : 1;
 	};
-} deptsiz0_t;
+} dwc_deptsiz0_t;
 
 typedef union {
 	uint32_t val;
@@ -213,7 +213,7 @@ typedef union {
 		uint32_t nak:1;
 		uint32_t reserved3      : 18;
 	};
-} diepint_t;
+} dwc_diepint_t;
 
 typedef union {
 	uint32_t val;
@@ -249,7 +249,7 @@ typedef union {
 
 		uint32_t reserved3      : 17;
 	};
-} doepint_t;
+} dwc_doepint_t;
 
 typedef union {
     uint32_t val;
@@ -389,14 +389,14 @@ typedef union {
 
 typedef struct {
 	/* Device IN Endpoint Control Register */
-	depctl_t diepctl;
+	dwc_depctl_t diepctl;
 
 	uint32_t reserved;
 	/* Device IN Endpoint Interrupt Register */
-	diepint_t diepint;
+	dwc_diepint_t diepint;
 	uint32_t reserved2;
 	/* Device IN Endpoint Transfer Size */
-	deptsiz_t dieptsiz;
+	dwc_deptsiz_t dieptsiz;
 	/* Device IN Endpoint DMA Address Register */
 	uint32_t diepdma;
 	/* Device IN Endpoint Transmit FIFO Status Register */
@@ -407,14 +407,14 @@ typedef struct {
 
 typedef struct {
 	/* Device OUT Endpoint Control Register */
-	depctl_t doepctl;
+	dwc_depctl_t doepctl;
 
 	uint32_t reserved;
 	/* Device OUT Endpoint Interrupt Register */
-	doepint_t doepint;
+	dwc_doepint_t doepint;
 	uint32_t reserved2;
 	/* Device OUT Endpoint Transfer Size Register */
-	deptsiz_t doeptsiz;
+	dwc_deptsiz_t doeptsiz;
 	/* Device OUT Endpoint DMA Address Register */
 	uint32_t doepdma;
 	uint32_t reserved3;
@@ -456,6 +456,29 @@ typedef union {
 	};
 } dwc_pcgcctl_t;
 
+typedef union {
+    uint32_t val;
+    struct {
+		uint32_t nptxfspcavail:16;
+		uint32_t nptxqspcavail:8;
+		/** Top of the Non-Periodic Transmit Request Queue
+		 *	- bit 24 - Terminate (Last entry for the selected
+		 *	  channel/EP)
+		 *	- bits 26:25 - Token Type
+		 *	  - 2'b00 - IN/OUT
+		 *	  - 2'b01 - Zero Length OUT
+		 *	  - 2'b10 - PING/Complete Split
+		 *	  - 2'b11 - Channel Halt
+		 *	- bits 30:27 - Channel/EP Number
+		 */
+		uint32_t nptxqtop_terminate:1;
+		uint32_t nptxqtop_token:2;
+		uint32_t nptxqtop_chnep:4;
+		uint32_t reserved:1;
+	};
+} dwc_gnptxsts_t;
+
+
 typedef volatile struct {
     // OTG Control and Status Register
     uint32_t gotgctl;
@@ -480,7 +503,7 @@ typedef volatile struct {
 	// Non Periodic Transmit FIFO Size Register
     uint32_t gnptxfsiz;
 	// Non Periodic Transmit FIFO/Queue Status Register
-    uint32_t gnptxsts;
+    dwc_gnptxsts_t gnptxsts;
 
     uint32_t reserved_030[(0x800 - 0x030) / sizeof(uint32_t)];
 
