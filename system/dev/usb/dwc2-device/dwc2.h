@@ -30,19 +30,16 @@
 #include <zircon/hw/usb.h>
 #include <sync/completion.h>
 
-#include "usb_dwc_regs.h"
-
 #include <zircon/listnode.h>
 #include <zircon/process.h>
 
+#include "usb_dwc_regs.h"
+
 #define DWC_MAX_EPS    32
 
-// TODO - move to dwc_usb_t
-extern dwc_regs_t* regs;
-
 typedef enum dwc_ep0_state {
-    EP0_STATE_DISCONNECT,
-    EP0_STATE_IDLE,
+    EP0_STATE_NONE,
+    EP0_STATE_SETUP,
     EP0_STATE_DATA_OUT,
     EP0_STATE_DATA_IN,
     EP0_STATE_STATUS,
@@ -78,6 +75,8 @@ typedef struct {
     zx_handle_t bti_handle;
     thrd_t irq_thread;
     zx_device_t* parent;
+
+    dwc_regs_t* regs;
 
     // device stuff
     dwc_endpoint_t eps[DWC_MAX_EPS];

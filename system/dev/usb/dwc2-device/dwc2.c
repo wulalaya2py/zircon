@@ -7,8 +7,6 @@
 #define MMIO_INDEX  0
 #define IRQ_INDEX   0
 
-dwc_regs_t* regs = NULL;
-
 /*
 static zx_status_t wait_bits(volatile uint32_t* ptr, uint32_t bits, uint32_t expected) {
     for (int i = 0; i < 1000; i++) {
@@ -21,7 +19,9 @@ static zx_status_t wait_bits(volatile uint32_t* ptr, uint32_t bits, uint32_t exp
 }
 */
 
-static zx_status_t usb_dwc_softreset_core(void) {
+static zx_status_t usb_dwc_softreset_core(dwc_usb_t* dwc) {
+    dwc_regs_t* regs = dwc->regs;
+
 /* do we need this?
     zx_status_t status = wait_bits(&regs->core_reset.val, DWC_AHB_MASTER_IDLE, DWC_AHB_MASTER_IDLE);
     if (status != ZX_OK) {
@@ -41,7 +41,9 @@ static zx_status_t usb_dwc_softreset_core(void) {
     return ZX_ERR_TIMED_OUT;
 }
 
-static zx_status_t usb_dwc_setupcontroller(void) {
+static zx_status_t usb_dwc_setupcontroller(dwc_usb_t* dwc) {
+    dwc_regs_t* regs = dwc->regs;
+
     const uint32_t rx_words = 1024;
     const uint32_t tx_words = 1024;
 //    const uint32_t ptx_words = 1024;
@@ -148,9 +150,17 @@ static zx_protocol_device_t dwc_device_proto = {
 };
 
 static void dwc_handle_irq(dwc_usb_t* dwc) {
+    dwc_regs_t* regs = dwc->regs;
     dwc_interrupts_t interrupts = regs->gintsts;
+    dwc_interrupts_t mask = regs->gintmsk;
+
 printf("XXXXXXXXXXXXXXXXX dwc_handle_irq: %08x\n", interrupts.val);
 
+    interrupts.val &= mask.val;
+
+    // clear interrupt
+    uint32_t gotgint = regs->gotgint;
+    regs->gotgint = gotgint;
 /*
 uint32_t reserved0         : 1;
 uint32_t modemismatch      : 1;
@@ -197,17 +207,6 @@ uint32_t wkupintr          :1;
 //  04088028 sof_intr nptxfempty eopframe resetdet ptxfempty
 // 54008c20 nptxfempty erlysuspend usbsuspend eopframe ptxfempty conidstschng sessreqintr
 
-/* host
-    if (interrupts.port_intr) {
-        dwc_handle_port_irq(dwc);
-    }
-    if (interrupts.sof_intr) {
-        dwc_handle_sof_irq(dwc);
-    }
-    if (interrupts.host_channel_intr) {
-        dwc_handle_channel_irq(dwc);
-    }
-*/
     if (interrupts.rxstsqlvl) {
         printf("rxstsqlvl\n");
         dwc_handle_rxstsqlvl_irq(dwc);
@@ -225,20 +224,21 @@ uint32_t wkupintr          :1;
         dwc_handle_enumdone_irq(dwc);
     }
     if (interrupts.inepintr) {
-        printf("inepintr\n");
         dwc_handle_inepintr_irq(dwc);
     }
     if (interrupts.outepintr) {
-        printf("outepintr\n");
         dwc_handle_outepintr_irq(dwc);
     }
+
+    // ????
+    regs->gintsts = interrupts;
 }
 
 // Thread to handle interrupts.
 static int dwc_irq_thread(void* arg) {
     dwc_usb_t* dwc = (dwc_usb_t*)arg;
 
-sleep(2);
+//sleep(2);
 
     while (1) {
         zx_status_t wait_res;
@@ -280,7 +280,7 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     // Carve out some address space for this device.
     size_t mmio_size;
     zx_handle_t mmio_handle = ZX_HANDLE_INVALID;
-    status = pdev_map_mmio(&proto, MMIO_INDEX, ZX_CACHE_POLICY_UNCACHED_DEVICE, (void **)&regs,
+    status = pdev_map_mmio(&proto, MMIO_INDEX, ZX_CACHE_POLICY_UNCACHED_DEVICE, (void **)&dwc->regs,
                        &mmio_size, &mmio_handle);
     if (status != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: bind failed to pdev_map_mmio.\n");
@@ -302,12 +302,14 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
 
     dwc->parent = dev;
 
-    if ((status = usb_dwc_softreset_core()) != ZX_OK) {
+sleep(10);
+
+    if ((status = usb_dwc_softreset_core(dwc)) != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: failed to reset core.\n");
         goto error_return;
     }
 
-    if ((status = usb_dwc_setupcontroller()) != ZX_OK) {
+    if ((status = usb_dwc_setupcontroller(dwc)) != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: failed setup controller.\n");
         goto error_return;
     }
@@ -341,11 +343,11 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     return ZX_OK;
 
 error_return:
-    if (regs) {
-        zx_vmar_unmap(zx_vmar_root_self(), (uintptr_t)regs, mmio_size);
-    }
-    zx_handle_close(mmio_handle);
     if (dwc) {
+        if (dwc->regs) {
+            zx_vmar_unmap(zx_vmar_root_self(), (uintptr_t)dwc->regs, mmio_size);
+        }
+        zx_handle_close(mmio_handle);
         zx_handle_close(dwc->irq_handle);
         zx_handle_close(dwc->bti_handle);
         free(dwc);
