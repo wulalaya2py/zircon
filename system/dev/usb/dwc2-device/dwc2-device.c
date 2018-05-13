@@ -21,7 +21,7 @@ static void dwc2_ep0_out_start(dwc_usb_t* dwc)
 
 	doeptsize0.supcnt = 3;
 	doeptsize0.pktcnt = 1;
-	doeptsize0.xfersize = 8*3;
+	doeptsize0.xfersize = 8 * 3;
     regs->depout[0].doeptsiz.val = doeptsize0.val;
 
 	doepctl.epena = 1;
@@ -32,7 +32,36 @@ static void dwc2_ep0_out_start(dwc_usb_t* dwc)
 
 static void dwc_ep0_complete_request(dwc_usb_t* dwc) {
     printf("dwc_ep0_complete_request\n");
+#if 0
+	deptsiz0_data_t deptsiz;
+	dwc_ep_t* ep = &pcd->dwc_eps[0].dwc_ep;
+	int ret = 0;
 
+	if (EP0_STATUS == pcd->ep0state) {
+		ep->start_xfer_buff = 0;
+		ep->xfer_buff = 0;
+		ep->xfer_len = 0;
+		ep->num = 0;
+		ret = 1;
+	} else if (0 == ep->xfer_len) {
+		ep->xfer_len = 0;
+		ep->xfer_count = 0;
+		ep->sent_zlp = 1;
+		ep->num = 0;
+		dwc_otg_ep_start_transfer(ep);
+		ret = 1;
+	} else if (ep->is_in) {
+		deptsiz.d32 = dwc_read_reg32(DWC_REG_IN_EP_TSIZE(0));
+		if (0 == deptsiz.b.xfersize) {
+			/* Is a Zero Len Packet needed? */
+			do_setup_status_phase(pcd, 0);
+		}
+	} else {
+		/* ep0-OUT */
+		do_setup_status_phase(pcd, 1);
+	}
+
+#endif
 }
 
 static zx_status_t dwc_handle_setup(dwc_usb_t* dwc, usb_setup_t* setup, void* buffer, size_t length,
@@ -163,13 +192,18 @@ static void dwc_handle_ep0(dwc_usb_t* dwc) {
 	struct usb_req_flag *req_flag = &gadget_wrapper.req_flag;
 */
 	switch (dwc->ep0_state) {
-	case EP0_STATE_SETUP: {
-printf("dwc_handle_ep0 EP0_STATE_SETUP\n");
+	case EP0_STATE_IDLE: {
 //		req_flag->request_config = 0;
+
+    	if (!dwc->got_setup)
+    		return;
+    	dwc->got_setup = false;
+
 	    usb_setup_t* setup = &dwc->cur_setup;
 
         bool is_out = ((setup->bmRequestType & USB_DIR_MASK) == USB_DIR_OUT);
         if (setup->wLength > 0 && is_out) {
+printf("queue read\n");
             // queue a read for the data phase
             dwc_ep_start_transfer(dwc, 0, false, io_buffer_phys(&dwc->ep0_buffer), setup->wLength, false);
             dwc->ep0_state = EP0_STATE_DATA_OUT;
@@ -193,7 +227,7 @@ printf("queue write\n");
             } else {
 //                dwc->ep0_state = EP0_STATE_WAIT_NRDY_IN;
             }
-        }    	
+        }	
 	    break;
     }
 	case EP0_STATE_DATA_IN:
@@ -211,13 +245,12 @@ printf("queue write\n");
     printf("dwc_handle_ep0 EP0_STATE_STATUS\n");
 		dwc_ep0_complete_request(dwc);
 		/* OUT for next SETUP */
-		dwc->ep0_state = EP0_STATE_NONE;
+		dwc->ep0_state = EP0_STATE_IDLE;
 //		ep0->stopped = 1;
 //		ep0->is_in = 0;
 		break;
 
 	case EP0_STATE_STALL:
-	case EP0_STATE_NONE:
 	default:
 		printf("EP0 state is %d, should not get here pcd_setup()\n", dwc->ep0_state);
 		break;
@@ -305,7 +338,9 @@ static void dwc_flush_fifo(dwc_usb_t* dwc, const int num) {
 void dwc_handle_reset_irq(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
 
-	zxlogf(INFO, "USB RESET\n");
+	zxlogf(INFO, "dwc_handle_reset_irq\n");
+
+    dwc->ep0_state = EP0_STATE_DISCONNECTED;
 
 	/* Clear the Remote Wakeup Signalling */
 	regs->dctl.rmtwkupsig = 1;
@@ -363,9 +398,9 @@ void dwc_handle_reset_irq(dwc_usb_t* dwc) {
 void dwc_handle_enumdone_irq(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
 
-	zxlogf(INFO, "SPEED ENUM\n");
+	zxlogf(INFO, "dwc_handle_enumdone_irq\n");
 
-    dwc->ep0_state = EP0_STATE_NONE;
+    dwc->ep0_state = EP0_STATE_IDLE;
 
     dwc_depctl_t diepctl = regs->depin[0].diepctl;
     diepctl.mps = DWC_DEP0CTL_MPS_64;
@@ -391,7 +426,6 @@ void dwc_handle_enumdone_irq(dwc_usb_t* dwc) {
 void dwc_handle_rxstsqlvl_irq(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
 
-printf("dwc_handle_rxstsqlvl_irq\n");
 /*
 	gintmsk_data_t gintmask = {0};
 	gintsts_data_t gintsts = {0};
@@ -406,6 +440,10 @@ printf("dwc_handle_rxstsqlvl_irq\n");
 
 	/* Get the Status from the top of the FIFO */
 	 dwc_grxstsp_t grxstsp = regs->grxstsp;
+
+printf("dwc_handle_rxstsqlvl_irq epnum: %u bcnt: %u pktsts: %u\n", grxstsp.epnum, grxstsp.bcnt, grxstsp.pktsts);
+	 
+	 
 	if (grxstsp.epnum != 0)
 		grxstsp.epnum = 2;
 	/* Get pointer to EP structure */
@@ -413,7 +451,7 @@ printf("dwc_handle_rxstsqlvl_irq\n");
 
 	switch (grxstsp.pktsts) {
 	case DWC_STS_DATA_UPDT:
-printf("DWC_STS_DATA_UPDT\n");
+printf("DWC_STS_DATA_UPDT grxstsp.bcnt: %u\n", grxstsp.bcnt);
 /*
 		if (status.b.bcnt && ep->xfer_buff) {
 			dwc_otg_read_packet(ep->xfer_buff, status.b.bcnt);
@@ -424,7 +462,7 @@ printf("DWC_STS_DATA_UPDT\n");
 		break;
 
 	case DWC_DSTS_SETUP_UPDT:
-printf("DWC_STS_DATA_UPDT\n");
+printf("DWC_DSTS_SETUP_UPDT\n");
 {
     volatile uint32_t* fifo = (uint32_t *)((uint8_t *)regs + 0x1000);
     uint32_t* dest = (uint32_t*)&dwc->cur_setup;
@@ -433,10 +471,13 @@ printf("DWC_STS_DATA_UPDT\n");
 printf("SETUP bmRequestType: 0x%02x bRequest: %u wValue: %u wIndex: %u wLength: %u\n",
        dwc->cur_setup.bmRequestType, dwc->cur_setup.bRequest, dwc->cur_setup.wValue,
        dwc->cur_setup.wIndex, dwc->cur_setup.wLength); 
+       dwc->got_setup = true;
 }
+       dwc->got_setup = true;
+       dwc->setup_length = grxstsp.bcnt;
 //		req_flag->request_enable = 1;
 //		ep->xfer_count += status.b.bcnt;
-        dwc->ep0_state = EP0_STATE_SETUP;
+//        dwc->ep0_state = EP0_STATE_SETUP;
 		break;
 
 	case DWC_DSTS_GOUT_NAK:

@@ -38,8 +38,9 @@
 #define DWC_MAX_EPS    32
 
 typedef enum dwc_ep0_state {
-    EP0_STATE_NONE,
-    EP0_STATE_SETUP,
+    EP0_STATE_DISCONNECTED,
+    EP0_STATE_IDLE,
+//    EP0_STATE_SETUP,
     EP0_STATE_DATA_OUT,
     EP0_STATE_DATA_IN,
     EP0_STATE_STATUS,
@@ -86,6 +87,9 @@ typedef struct {
     dwc_ep0_state_t ep0_state;
     usb_setup_t cur_setup;
     bool configured;
+    
+    bool got_setup;
+    uint32_t setup_length;
 } dwc_usb_t;
 
 // dwc2-device.c
