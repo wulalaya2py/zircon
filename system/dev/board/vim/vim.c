@@ -125,27 +125,8 @@ static int vim_start_thread(void* arg) {
         zxlogf(ERROR, "vim_i2c_init failed: %d\n", status);
         goto fail;
     }
-    if ((status = vim_uart_init(bus)) != ZX_OK) {
-        zxlogf(ERROR, "vim_uart_init failed: %d\n", status);
-        goto fail;
-    }
     if ((status = vim_usb_init(bus)) != ZX_OK) {
         zxlogf(ERROR, "vim_usb_init failed: %d\n", status);
-        goto fail;
-    }
-
-    if ((status = vim_mali_init(bus)) != ZX_OK) {
-        zxlogf(ERROR, "vim_mali_init failed: %d\n", status);
-        goto fail;
-    }
-
-    if ((status = vim_sd_emmc_init(bus)) != ZX_OK) {
-        zxlogf(ERROR, "vim_sd_emmc_init failed: %d\n", status);
-        goto fail;
-    }
-
-    if ((status = vim2_fanctl_init(bus)) != ZX_OK) {
-        zxlogf(ERROR, "vim2_fanctl_init failed: %d\n", status);
         goto fail;
     }
 

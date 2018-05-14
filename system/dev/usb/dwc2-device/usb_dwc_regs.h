@@ -415,6 +415,13 @@ typedef union {
 	};
 } dwc_gnptxsts_t;
 
+typedef union  {
+    uint32_t val;
+    struct {
+		uint32_t startaddr  : 16;
+		uint32_t depth      : 16;
+	};
+} dwc_fifosiz_t;
 
 typedef volatile struct {
     // OTG Control and Status Register
@@ -438,7 +445,7 @@ typedef volatile struct {
 	// Receive FIFO Size Register
     uint32_t grxfsiz;
 	// Non Periodic Transmit FIFO Size Register
-    uint32_t gnptxfsiz;
+    dwc_fifosiz_t gnptxfsiz;
 	// Non Periodic Transmit FIFO/Queue Status Register
     dwc_gnptxsts_t gnptxsts;
 

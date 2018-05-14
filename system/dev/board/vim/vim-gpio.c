@@ -16,7 +16,7 @@
 #include "vim.h"
 
 // uncomment to disable LED blinky test
-#define GPIO_TEST 1
+//#define GPIO_TEST 1
 
 // S905X and S912 have same MMIO addresses
 static const pbus_mmio_t gpio_mmios[] = {

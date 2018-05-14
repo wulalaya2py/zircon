@@ -7,8 +7,9 @@
 #include "dwc2.h"
 
 #define DWC_REG_DATA_FIFO_START 0x1000
-#define DWC_REG_DATA_FIFO(ep)	((volatile uint32_t*)regs + (ep + 1) * 0x1000)
+#define DWC_REG_DATA_FIFO(regs, ep)	((volatile uint32_t*)((uint8_t*)regs + (ep + 1) * 0x1000))
 
+void dwc_handle_nptxfempty_irq(dwc_usb_t* dwc);
 
 static void dwc2_ep0_out_start(dwc_usb_t* dwc)
 {
@@ -114,7 +115,7 @@ printf("dwc_handle_setup\n");
 }
 
 static void dwc_ep_start_transfer(dwc_usb_t* dwc, unsigned ep_num) {
-printf("dwc_ep_start_transfer\n");
+printf("dwc_ep_start_transfer epnum %u\n", ep_num);
     dwc_regs_t* regs = dwc->regs;
     dwc_endpoint_t* ep = &dwc->eps[ep_num];
 
@@ -124,6 +125,7 @@ printf("dwc_ep_start_transfer\n");
 //    _ep->total_len = _ep->xfer_len;
 
 	if (ep->is_in) {
+printf("is-in\n");
 		depctl = regs->depin[ep_num].diepctl;
 		deptsiz = &regs->depin[ep_num].dieptsiz;
 	} else {
@@ -136,21 +138,22 @@ printf("dwc_ep_start_transfer\n");
 		deptsiz->xfersize = ep->is_in ? 0 : ep_mps;
 		deptsiz->pktcnt = 1;
 	} else {
-		deptsiz->pktcnt =
-		(ep->txn_length + (ep_mps - 1)) /ep_mps;
+		deptsiz->pktcnt = (ep->txn_length + (ep_mps - 1)) / ep_mps;
 		if (ep->is_in && ep->txn_length < ep_mps) {
 			deptsiz->xfersize = ep->txn_length;
-printf("set deptsiz->xfersize = %u\n", ep->txn_length);
 		}
-		else
+		else {
 			deptsiz->xfersize = ep->txn_length - ep->txn_offset;
+		}
 	}
+printf("deptsiz->xfersize = %u deptsiz->pktcnt = %u\n", deptsiz->xfersize, deptsiz->pktcnt);
 
 	/* IN endpoint */
 	if (ep->is_in) {
-    	dwc_interrupts_t gintsts = {0};
-    	gintsts.nptxfempty = 1;
-		regs->gintsts = gintsts;
+//    	dwc_interrupts_t gintsts = {0};
+//    	gintsts.nptxfempty = 1;
+//		regs->gintsts = gintsts;
+printf("enable nptxfempty\n");
 		regs->gintmsk.nptxfempty = 1;
 	}
 
@@ -176,8 +179,10 @@ static void pcd_setup(dwc_usb_t* dwc) {
 	dwc_endpoint_t	*ep0 = &dwc->eps[0];
     usb_setup_t* setup = &dwc->cur_setup;
 
-	if (!dwc->got_setup)
+	if (!dwc->got_setup) {
+printf("no setup\n");
 		return;
+	}
 	dwc->got_setup = false;
 //	_pcd->status = 0;
 
@@ -265,6 +270,7 @@ static void dwc_handle_ep0(dwc_usb_t* dwc) {
 */
 	switch (dwc->ep0_state) {
 	case EP0_STATE_IDLE: {
+printf("dwc_handle_ep0 EP0_STATE_IDLE\n");
 //		req_flag->request_config = 0;
 		pcd_setup(dwc);
         break;
@@ -460,11 +466,6 @@ void dwc_handle_reset_irq(dwc_usb_t* dwc) {
 	/* setup EP0 to receive SETUP packets */
 	dwc2_ep0_out_start(dwc);
 
-	/* Clear interrupt */
-    dwc_interrupts_t gintsts = {0};
-	gintsts.usbreset = 1;
-	regs->gintsts = gintsts;
-
 //	flush_cpu_cache();
 }
 
@@ -477,41 +478,19 @@ void dwc_handle_enumdone_irq(dwc_usb_t* dwc) {
 
     dwc->eps[0].max_packet_size = 64;
 
-    dwc_depctl_t diepctl = regs->depin[0].diepctl;
-    diepctl.mps = DWC_DEP0CTL_MPS_64;
-    regs->depin[0].diepctl = diepctl;
+    regs->depin[0].diepctl.mps = DWC_DEP0CTL_MPS_64;
+    regs->depout[0].doepctl.epena = 1;
 
-    dwc_depctl_t doepctl = regs->depout[0].doepctl;
-    doepctl.epena = 1;
-    regs->depout[0].doepctl = doepctl;
-
-    dwc_dctl_t dctl = {0};
-    dctl.cgnpinnak = 1;
-    regs->dctl = dctl;
+    regs->dctl.cgnpinnak = 1;
 
 	/* high speed */
 	regs->gusbcfg.usbtrdtim = 5;
-
-	/* Clear interrupt */
-	dwc_interrupts_t gintsts = {0};
-	gintsts.enumdone = 1;
-	regs->gintsts = gintsts;
 }
 
 void dwc_handle_rxstsqlvl_irq(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
 
-/*
-	gintmsk_data_t gintmask = {0};
-	gintsts_data_t gintsts = {0};
-	dwc_ep_t *ep;
-	pcd_struct_t *pcd = &gadget_wrapper.pcd;
-	struct usb_req_flag *req_flag = &gadget_wrapper.req_flag;
-	device_grxsts_data_t status;
-*/
-
-	/* Disable the Rx Status Queue Level interrupt */
-    regs->gintmsk.rxstsqlvl = 0;
+	regs->gintmsk.rxstsqlvl = 0;
 
 	/* Get the Status from the top of the FIFO */
 	 dwc_grxstsp_t grxstsp = regs->grxstsp;
@@ -556,21 +535,16 @@ printf("SETUP bmRequestType: 0x%02x bRequest: %u wValue: %u wIndex: %u wLength: 
 		break;
 	}
 
-	/* Enable the Rx Status Queue Level interrupt */
-    regs->gintmsk.rxstsqlvl = 1;
-
-	/* Clear interrupt */
-	dwc_interrupts_t gintsts = {0};
-	gintsts.rxstsqlvl = 1;
-	regs->gintsts = gintsts;
+	regs->gintmsk.rxstsqlvl = 1;
 }
 
 void dwc_handle_inepintr_irq(dwc_usb_t* dwc) {
-    dwc_regs_t* regs = dwc->regs;
 
 printf("dwc_handle_inepintr_irq\n");
 
 #if 0
+    dwc_regs_t* regs = dwc->regs;
+
 	diepint_data_t diepint = {0};
 	gintmsk_data_t intr_mask = {0};
 	gintsts_data_t gintsts = {0};
@@ -645,14 +619,10 @@ printf("dwc_handle_inepintr_irq\n");
 		ep_intr >>= 1;
 	}
 #endif
-	/* Clear interrupt */
-	dwc_interrupts_t gintsts = {0};
-	gintsts.inepintr = 1;
-	regs->gintsts = gintsts;
 }
 
 static void dwc_ep_write_packet(dwc_usb_t* dwc, int epnum, uint32_t byte_count, uint32_t dword_count) {
-    printf("dwc_ep_write_packet byte_count: %u dword_count %u\n", byte_count, dword_count);
+    printf("dwc_ep_write_packet ep %d byte_count: %u dword_count %u\n", epnum, byte_count, dword_count);
     dwc_regs_t* regs = dwc->regs;
     dwc_endpoint_t* ep = &dwc->eps[0];
 
@@ -666,7 +636,8 @@ static void dwc_ep_write_packet(dwc_usb_t* dwc, int epnum, uint32_t byte_count, 
 		return;
 	}
 
-	fifo = DWC_REG_DATA_FIFO(epnum);
+	fifo = DWC_REG_DATA_FIFO(regs, epnum);
+printf("fifo: %p\n", fifo);
 
 	for (i = 0; i < dword_count; i++) {
 		temp_data = *((uint32_t*)data_buff);
@@ -764,15 +735,19 @@ printf("dwc_handle_nptxfempty_irq\n");
 		ep = &dwc->eps[epnum];
 
 		/* IN endpoint ? */
-		if (epnum && !ep->is_in)
+		if (epnum && !ep->is_in) {
+printf("not IN\n");
 			continue;
+		}
 
 //!!		if (ep->type == DWC_OTG_EP_TYPE_INTR && ep->xfer_len == 0)
 //			continue;
 
 		depctl = regs->depin[epnum].diepctl;
-		if (depctl.epena != 1)
+		if (depctl.epena != 1) {
+printf("not enabled\n");
 			continue;
+        }
 
 //		flush_cpu_cache();
 
@@ -808,12 +783,10 @@ printf("dwc_handle_nptxfempty_irq\n");
 		}
 
 	}
+}
 
-printf("dwc_handle_nptxfempty_irq DONE\n");
-	/* Clear interrupt */
-	dwc_interrupts_t gintsts = {0};
-	gintsts.nptxfempty = 1;
-	regs->gintsts = gintsts;
+void dwc_handle_usbsuspend_irq(dwc_usb_t* dwc) {
+    printf("dwc_handle_usbsuspend_irq\n");
 }
 
 static void dwc_request_queue(void* ctx, usb_request_t* req) {

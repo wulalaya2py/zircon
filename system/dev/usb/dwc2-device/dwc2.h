@@ -101,3 +101,4 @@ void dwc_handle_rxstsqlvl_irq(dwc_usb_t* dwc);
 void dwc_handle_inepintr_irq(dwc_usb_t* dwc);
 void dwc_handle_outepintr_irq(dwc_usb_t* dwc);
 void dwc_handle_nptxfempty_irq(dwc_usb_t* dwc);
+void dwc_handle_usbsuspend_irq(dwc_usb_t* dwc);

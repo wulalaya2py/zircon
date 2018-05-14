@@ -21,13 +21,13 @@ static zx_status_t wait_bits(volatile uint32_t* ptr, uint32_t bits, uint32_t exp
 
 static zx_status_t usb_dwc_softreset_core(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
+printf("dwc_regs: %p\n", regs);
 
-/* do we need this?
-    zx_status_t status = wait_bits(&regs->core_reset.val, DWC_AHB_MASTER_IDLE, DWC_AHB_MASTER_IDLE);
-    if (status != ZX_OK) {
-        return status;
+/* do we need this? */
+    while (regs->grstctl.ahbidle == 0) {    
+        usleep(1000);
     }
-*/
+
     dwc_grstctl_t grstctl = {0};
     grstctl.csftrst = 1;
     regs->grstctl = grstctl;
@@ -44,34 +44,36 @@ static zx_status_t usb_dwc_softreset_core(dwc_usb_t* dwc) {
 static zx_status_t usb_dwc_setupcontroller(dwc_usb_t* dwc) {
     dwc_regs_t* regs = dwc->regs;
 
-    const uint32_t rx_words = 1024;
-    const uint32_t tx_words = 1024;
-//    const uint32_t ptx_words = 1024;
+    regs->gusbcfg.force_dev_mode = 1;
+	regs->gahbcfg.dmaenable = 0;
 
-    regs->grxfsiz = rx_words;
-    regs->gnptxfsiz = (tx_words << 16) | rx_words;
-//??    regs->host_periodic_tx_fifo_size = (ptx_words << 16) | (rx_words + tx_words);
-
-    regs->gahbcfg.hburstlen = 1;
-    regs->gahbcfg.dmaenable = 1;
-
-    // device role initialization
     regs->dctl.sftdiscon = 1;
     regs->dctl.sftdiscon = 0;
 
-    regs->diepmsk.val = 0;
-    regs->doepmsk.val = 0;
-    regs->daint = 0xFFFFFFFF;
-    regs->daintmsk = 0;
+    // reset phy clock
+    regs->pcgcctl.val = 0;
+
+    regs->grxfsiz = 256;    //???
+
+	regs->gnptxfsiz.depth = 512;
+	regs->gnptxfsiz.startaddr = 256;
+
+//??	dwc_otg_flush_fifo(0x10);
+
+	regs->grstctl.intknqflsh = 1;
+
+	/* Clear all pending Device Interrupts */
+	regs->diepmsk.val = 0;
+	regs->doepmsk.val = 0;
+	regs->daint = 0xffffffff;
+	regs->daintmsk = 0;
+
     for (int i = 0; i < MAX_EPS_CHANNELS; i++) {
         regs->depin[i].diepctl.val = 0;
         regs->depout[i].doepctl.val = 0;
         regs->depin[i].dieptsiz.val = 0;
         regs->depout[i].doeptsiz.val = 0;
     }
-
-    // reset phy clock
-    regs->pcgcctl.val = 0;
 
     dwc_interrupts_t gintmsk = {0};
 
@@ -83,18 +85,12 @@ static zx_status_t usb_dwc_setupcontroller(dwc_usb_t* dwc) {
 //    gintmsk.sof_intr = 1;
     gintmsk.usbsuspend = 1;
 
+// try this
+//gintmsk.nptxfempty = 1;
+
 printf("enabling interrupts %08x\n", gintmsk.val);
 
     regs->gintmsk = gintmsk;
-
-/*
-    union dwc_core_configuration core_configuration;
-    core_configuration = regs->core_configuration;
-printf("core_configuration: %08x\n", core_configuration.val);
-    core_configuration.force_host_mode = 0;
-    core_configuration.force_dev_mode = 0;
-    regs->core_configuration = core_configuration;
-*/
 
     regs->gahbcfg.glblintrmsk = 1;
 
@@ -154,71 +150,56 @@ static void dwc_handle_irq(dwc_usb_t* dwc) {
     dwc_interrupts_t interrupts = regs->gintsts;
     dwc_interrupts_t mask = regs->gintmsk;
 
-printf("XXXXXXXXXXXXXXXXX dwc_handle_irq: %08x\n", interrupts.val);
+printf("dwc_handle_irq:");
+if (interrupts.modemismatch) printf(" modemismatch");
+if (interrupts.otgintr) printf(" otgintr");
+if (interrupts.sof_intr) printf(" sof_intr");
+if (interrupts.rxstsqlvl) printf(" rxstsqlvl");
+if (interrupts.nptxfempty) printf(" nptxfempty");
+if (interrupts.ginnakeff) printf(" ginnakeff");
+if (interrupts.goutnakeff) printf(" goutnakeff");
+if (interrupts.ulpickint) printf(" ulpickint");
+if (interrupts.i2cintr) printf(" i2cintr");
+if (interrupts.erlysuspend) printf(" erlysuspend");
+if (interrupts.usbsuspend) printf(" usbsuspend");
+if (interrupts.usbreset) printf(" usbreset");
+if (interrupts.enumdone) printf(" enumdone");
+if (interrupts.isooutdrop) printf(" isooutdrop");
+if (interrupts.eopframe) printf(" eopframe");
+if (interrupts.restoredone) printf(" restoredone");
+if (interrupts.epmismatch) printf(" epmismatch");
+if (interrupts.inepintr) printf(" inepintr");
+if (interrupts.outepintr) printf(" outepintr");
+if (interrupts.incomplisoin) printf(" incomplisoin");
+if (interrupts.incomplisoout) printf(" incomplisoout");
+if (interrupts.fetsusp) printf(" fetsusp");
+if (interrupts.resetdet) printf(" resetdet");
+if (interrupts.port_intr) printf(" port_intr");
+if (interrupts.host_channel_intr) printf(" host_channel_intr");
+if (interrupts.ptxfempty) printf(" ptxfempty");
+if (interrupts.lpmtranrcvd) printf(" lpmtranrcvd");
+if (interrupts.conidstschng) printf(" conidstschng");
+if (interrupts.disconnect) printf(" disconnect");
+if (interrupts.sessreqintr) printf(" sessreqintr");
+if (interrupts.wkupintr) printf(" wkupintr");
+printf("\n");
 
+// acknowledge interrupts
     interrupts.val &= mask.val;
+    regs->gintsts = interrupts;
 
     // clear interrupt
     uint32_t gotgint = regs->gotgint;
     regs->gotgint = gotgint;
-/*
-uint32_t reserved0         : 1;
-uint32_t modemismatch      : 1;
-uint32_t otgintr           : 1;
-uint32_t sof_intr          : 1;
-
-uint32_t rxstsqlvl         :1;
-uint32_t nptxfempty        :1;
-uint32_t ginnakeff         :1;
-uint32_t goutnakeff        :1;
-
-uint32_t ulpickint         :1;
-uint32_t i2cintr           :1;
-uint32_t erlysuspend       :1;
-uint32_t usbsuspend        :1;
-
-uint32_t usbreset          :1;
-uint32_t enumdone          :1;
-uint32_t isooutdrop        :1;
-uint32_t eopframe          :1;
-
-uint32_t restoredone       :1;
-uint32_t epmismatch        :1;
-uint32_t inepintr          :1;
-uint32_t outepintr         :1;
-
-uint32_t incomplisoin      :1;
-uint32_t incomplisoout     :1;
-uint32_t fetsusp           :1;
-uint32_t resetdet          :1;
-
-uint32_t port_intr         : 1;
-uint32_t host_channel_intr : 1;
-uint32_t ptxfempty         :1;
-uint32_t lpmtranrcvd       :1;
-
-uint32_t conidstschng      :1;
-uint32_t disconnect        :1;
-uint32_t sessreqintr       :1;
-uint32_t wkupintr          :1;
-*/
-
-//04008028  sof_intr nptxfempty outepintr ptxfempty
-//  04088028 sof_intr nptxfempty eopframe resetdet ptxfempty
-// 54008c20 nptxfempty erlysuspend usbsuspend eopframe ptxfempty conidstschng sessreqintr
 
     if (interrupts.rxstsqlvl) {
-        printf("rxstsqlvl\n");
         dwc_handle_rxstsqlvl_irq(dwc);
-    }
-    if (interrupts.nptxfempty) {
-        dwc_handle_nptxfempty_irq(dwc);
     }
     if (interrupts.usbreset) {
         dwc_handle_reset_irq(dwc);
     }
     if (interrupts.usbsuspend) {
-        regs->gintsts.usbsuspend = 1;
+        dwc_handle_usbsuspend_irq(dwc);
     }
     if (interrupts.enumdone) {
         dwc_handle_enumdone_irq(dwc);
@@ -229,9 +210,9 @@ uint32_t wkupintr          :1;
     if (interrupts.outepintr) {
         dwc_handle_outepintr_irq(dwc);
     }
-
-    // ????
-    regs->gintsts = interrupts;
+    if (interrupts.nptxfempty) {
+        dwc_handle_nptxfempty_irq(dwc);
+    }
 }
 
 // Thread to handle interrupts.
@@ -301,8 +282,6 @@ static zx_status_t usb_dwc_bind(void* ctx, zx_device_t* dev) {
     }
 
     dwc->parent = dev;
-
-sleep(10);
 
     if ((status = usb_dwc_softreset_core(dwc)) != ZX_OK) {
         zxlogf(ERROR, "usb_dwc: failed to reset core.\n");
