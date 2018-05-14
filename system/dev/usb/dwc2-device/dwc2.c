@@ -85,8 +85,17 @@ static zx_status_t usb_dwc_setupcontroller(dwc_usb_t* dwc) {
 //    gintmsk.sof_intr = 1;
     gintmsk.usbsuspend = 1;
 
-// try this
-//gintmsk.nptxfempty = 1;
+/*
+	gintmsk.modemismatch = 1;
+	gintmsk.otgintr = 1;
+	gintmsk.conidstschng = 1;
+	gintmsk.wkupintr = 1;
+	gintmsk.disconnect = 0;
+	gintmsk.sessreqintr = 1;
+*/
+
+	regs->gotgint = 0xFFFFFFF;
+	regs->gintsts.val = 0xFFFFFFF;
 
 printf("enabling interrupts %08x\n", gintmsk.val);
 
@@ -184,13 +193,14 @@ if (interrupts.sessreqintr) printf(" sessreqintr");
 if (interrupts.wkupintr) printf(" wkupintr");
 printf("\n");
 
+    // clear interrupt
+    uint32_t gotgint = regs->gotgint;
+//    regs->gotgint = gotgint;
+printf("gotgint: %08x\n", gotgint);
+
 // acknowledge interrupts
     interrupts.val &= mask.val;
     regs->gintsts = interrupts;
-
-    // clear interrupt
-    uint32_t gotgint = regs->gotgint;
-    regs->gotgint = gotgint;
 
     if (interrupts.rxstsqlvl) {
         dwc_handle_rxstsqlvl_irq(dwc);

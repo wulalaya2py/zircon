@@ -119,34 +119,39 @@ printf("dwc_ep_start_transfer epnum %u\n", ep_num);
     dwc_regs_t* regs = dwc->regs;
     dwc_endpoint_t* ep = &dwc->eps[ep_num];
 
-	dwc_depctl_t depctl;
-	volatile dwc_deptsiz_t* deptsiz;
+	volatile dwc_depctl_t* depctl_reg;
+	volatile dwc_deptsiz_t* deptsiz_reg;
 	uint32_t ep_mps = ep->max_packet_size;
 //    _ep->total_len = _ep->xfer_len;
 
 	if (ep->is_in) {
 printf("is-in\n");
-		depctl = regs->depin[ep_num].diepctl;
-		deptsiz = &regs->depin[ep_num].dieptsiz;
+		depctl_reg = &regs->depin[ep_num].diepctl;
+		deptsiz_reg = &regs->depin[ep_num].dieptsiz;
 	} else {
-		depctl = regs->depout[ep_num].doepctl;
-		deptsiz = &regs->depout[ep_num].doeptsiz;
+		depctl_reg = &regs->depout[ep_num].doepctl;
+		deptsiz_reg = &regs->depout[ep_num].doeptsiz;
 	}
+
+    dwc_depctl_t depctl = *depctl_reg;
+	dwc_deptsiz_t deptsiz = *deptsiz_reg;
 
 	/* Zero Length Packet? */
 	if (ep->txn_length == 0) {
-		deptsiz->xfersize = ep->is_in ? 0 : ep_mps;
-		deptsiz->pktcnt = 1;
+		deptsiz.xfersize = ep->is_in ? 0 : ep_mps;
+		deptsiz.pktcnt = 1;
 	} else {
-		deptsiz->pktcnt = (ep->txn_length + (ep_mps - 1)) / ep_mps;
+		deptsiz.pktcnt = (ep->txn_length + (ep_mps - 1)) / ep_mps;
 		if (ep->is_in && ep->txn_length < ep_mps) {
-			deptsiz->xfersize = ep->txn_length;
+			deptsiz.xfersize = ep->txn_length;
 		}
 		else {
-			deptsiz->xfersize = ep->txn_length - ep->txn_offset;
+			deptsiz.xfersize = ep->txn_length - ep->txn_offset;
 		}
 	}
-printf("deptsiz->xfersize = %u deptsiz->pktcnt = %u\n", deptsiz->xfersize, deptsiz->pktcnt);
+printf("deptsiz.xfersize = %u deptsiz.pktcnt = %u\n", deptsiz.xfersize, deptsiz.pktcnt);
+
+    *deptsiz_reg = deptsiz;
 
 	/* IN endpoint */
 	if (ep->is_in) {
@@ -161,11 +166,7 @@ printf("enable nptxfempty\n");
 	depctl.cnak = 1;
 	depctl.epena = 1;
 
-	if (ep->is_in) {
-		regs->depin[ep_num].diepctl = depctl;
-	} else {
-		regs->depout[ep_num].doepctl = depctl;
-	}
+    *depctl_reg = depctl;
 }
 
 static void pcd_setup(dwc_usb_t* dwc) {
