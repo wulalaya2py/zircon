@@ -61,6 +61,7 @@ typedef struct {
 
     uint16_t max_packet_size;
     uint8_t ep_num;
+    bool is_in;
     bool enabled;
     uint8_t type;           // control, bulk, interrupt or isochronous
     uint8_t interval;
@@ -82,14 +83,13 @@ typedef struct {
     // device stuff
     dwc_endpoint_t eps[DWC_MAX_EPS];
 
-    io_buffer_t ep0_buffer;
     usb_dci_interface_t dci_intf;
-    dwc_ep0_state_t ep0_state;
-    usb_setup_t cur_setup;
     bool configured;
-    
+
+    usb_setup_t cur_setup;    
+    dwc_ep0_state_t ep0_state;
+    io_buffer_t ep0_buffer;
     bool got_setup;
-    uint32_t setup_length;
 } dwc_usb_t;
 
 // dwc2-device.c

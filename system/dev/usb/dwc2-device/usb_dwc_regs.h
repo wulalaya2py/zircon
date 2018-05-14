@@ -246,8 +246,9 @@ typedef union {
 		uint32_t nak            : 1;
 		/* NYET Interrupt */
 		uint32_t nyet           : 1;
-
-		uint32_t reserved3      : 17;
+        /* Bit indicating setup packet received */
+        uint32_t sr             : 1;
+		uint32_t reserved3      : 16;
 	};
 } dwc_doepint_t;
 
@@ -322,70 +323,6 @@ typedef union {
         uint32_t reserved2  : 10;
     };
 } dwc_dsts_t;
-
-typedef union {
-    uint32_t val;
-    struct {
-		/* Transfer complete mask */
-		uint32_t xfercompl      : 1;
-		/* Endpoint disable mask */
-		uint32_t epdisabled     : 1;
-		/* AHB Error mask */
-		uint32_t ahberr         : 1;
-		/* TimeOUT Handshake mask (non-ISOC EPs) */
-		uint32_t timeout        : 1;
-		/* IN Token received with TxF Empty mask */
-		uint32_t intktxfemp     : 1;
-		/* IN Token Received with EP mismatch mask */
-		uint32_t intknepmis     : 1;
-		/* IN Endpoint NAK Effective mask */
-		uint32_t inepnakeff     : 1;
-		uint32_t emptyintr      : 1;
-		uint32_t txfifoundrn    : 1;
-		/* BNA Interrupt mask */
-		uint32_t bna            : 1;
-		uint32_t reserved       : 3;
-		/* BNA Interrupt mask */
-		uint32_t nak            : 1;
-		uint32_t reserved2      : 18;
-    };
-} dwc_diepmsk_t;
-
-typedef union {
-    uint32_t val;
-    struct {
-        /* Transfer complete */
-        uint32_t xfercompl      : 1;
-        /* Endpoint disable  */
-        uint32_t epdisabled     : 1;
-        /* AHB Error */
-        uint32_t ahberr         : 1;
-        /* Setup Phase Done (control EPs) */
-        uint32_t setup          : 1;
-        /* OUT Token Received when Endpoint Disabled */
-        uint32_t outtknepdis    : 1;
-        uint32_t stsphsercvd    : 1;
-        /* Back-to-Back SETUP Packets Received */
-        uint32_t back2backsetup : 1;
-        uint32_t reserved       : 1;
-        /* OUT packet Error */
-        uint32_t outpkterr      : 1;
-        /* BNA Interrupt */
-        uint32_t bna            : 1;
-        uint32_t reserved2      : 1;
-        /* Packet Drop Status */
-        uint32_t pktdrpsts      : 1;
-        /* Babble Interrupt */
-        uint32_t babble         : 1;
-        /* NAK Interrupt */
-        uint32_t nak            : 1;
-        /* NYET Interrupt */
-        uint32_t nyet           : 1;
-        /* Bit indicating setup packet received */
-        uint32_t sr             : 1;
-        uint32_t reserved3      : 16;
-    };
-} dwc_doepmsk_t;
 
 typedef struct {
 	/* Device IN Endpoint Control Register */
@@ -515,9 +452,9 @@ typedef volatile struct {
     dwc_dsts_t dsts;
     uint32_t unused;
     // Device IN Endpoint Common Interrupt Mask Register
-    dwc_diepmsk_t diepmsk;
+    dwc_diepint_t diepmsk;
     // Device OUT Endpoint Common Interrupt Mask Register
-    dwc_doepmsk_t doepmsk;
+    dwc_doepint_t doepmsk;
     // Device All Endpoints Interrupt Register
     uint32_t daint;
     //Device All Endpoints Interrupt Mask Register
