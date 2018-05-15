@@ -260,6 +260,11 @@ zx_status_t IntelAudioDsp::CreateAndStartStreams() {
             .stream_id = 1,
             .is_input = false,
         },
+        // Mic
+        {
+            .stream_id = 2,
+            .is_input = true
+        },
     };
 
     for (size_t i = 0; i < countof(STREAMS); ++i) {
