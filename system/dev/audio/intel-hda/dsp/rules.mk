@@ -8,6 +8,8 @@ MODULE := $(LOCAL_DIR)
 
 MODULE_TYPE := driver
 
+MODULE_FIRMWARE := intel-adsp-sst/dsp_fw_kbl_v3266.bin
+
 MODULE_SRCS += \
     $(LOCAL_DIR)/binding.c \
     $(LOCAL_DIR)/debug.cpp \

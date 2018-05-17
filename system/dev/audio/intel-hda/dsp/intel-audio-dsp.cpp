@@ -24,7 +24,7 @@ constexpr size_t SKL_ADSP_SRAM1_OFFSET  = 0xA000;
 // Mailbox offsets
 constexpr size_t ADSP_MAILBOX_IN_OFFSET = 0x1000; // Section 5.5 Offset from SRAM0
 
-constexpr const char* ADSP_FIRMWARE_PATH = "/boot/lib/firmware/dsp_fw_kbl_v3266.bin";
+constexpr const char* ADSP_FIRMWARE_PATH = "/boot/driver/firmware/dsp_fw_kbl_v3266.bin";
 
 constexpr zx_time_t INTEL_ADSP_TIMEOUT_NSEC              = ZX_MSEC( 50); // 50mS Arbitrary
 constexpr zx_time_t INTEL_ADSP_POLL_NSEC                 = ZX_USEC(500); // 500uS Arbitrary

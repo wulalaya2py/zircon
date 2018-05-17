@@ -7,6 +7,7 @@
 #include <ddk/device.h>
 #include <ddk/protocol/intel-hda-codec.h>
 #include <ddk/protocol/intel-hda-dsp.h>
+#include <zircon/thread_annotations.h>
 #include <fbl/mutex.h>
 #include <fbl/ref_counted.h>
 #include <fbl/ref_ptr.h>
@@ -20,7 +21,6 @@
 
 #include "debug-logging.h"
 #include "intel-hda-stream.h"
-#include "thread-annotations.h"
 
 namespace audio {
 namespace intel_hda {
