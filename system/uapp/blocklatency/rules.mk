@@ -12,6 +12,7 @@ MODULE_GROUP := misc
 MODULE_SRCS += $(LOCAL_DIR)/blocklatency.c
 
 MODULE_STATIC_LIBS := \
+    system/ulib/block-client \
     system/ulib/sync
 
 MODULE_LIBS := \
