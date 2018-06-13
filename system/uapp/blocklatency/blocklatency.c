@@ -7,29 +7,39 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
 #include <unistd.h>
+#include <threads.h>
 
+#include <block-client/client.h>
 #include <zircon/syscalls.h>
 #include <zircon/device/block.h>
 #include <zircon/misc/xorshiftrand.h>
 #include <sync/completion.h>
 
+
 void usage(void) {
     fprintf(stderr, "usage: blocklatency <args> <device>\n"
         "\n"
         "For all <num> use k/K, m/M, and g/G for ease of use/conversion\n"
-        "args:  -wt <num> <num>    wait time range in nanoseconds between operations\n"
-        "       -it <num>     number of operations to perform\n"
-        "       -bs <num>     transfer block size (multiple of 4K)\n"
-        "       -tt <num>     total bytes to transfer\n"
-        "       -mo <num>     maximum outstanding ops (1..128)\n"
-        "       -linear       transfers in linear order\n"
-        "       -random       random transfers across total range\n"
+        "args:  -wt <num> <num>    wait time range in nanoseconds between operations {default: 10-100ns}\n"
+        "       -it <num>       number of operations to perform {default: 100}\n"
+        "       -bs <num>       transfer block size (multiple of 4K)\n"
+        "       -tt <num>       total bytes to transfer\n"
+        "       -mo <num>       maximum outstanding ops (1..128)\n"
+        "       -read           only performs reads {default}\n"
+        "       -write          only performs writes\n"
+        "       -read-write-reg alternates between read and write\n"
+        "       -linear         transfers in linear order\n"
+        "       -random         random transfers across total range {default}\n"
         );
+
 }
 
 #define DEBUG(x...) fprintf(stderr, x)
+
+#define BIO_READ_ONLY 1
+#define BIO_WRITE_ONLY 2
+#define BIO_READ_WRITE_REG 3
 
 //Macros for using str_to_number()
 #define NUMMODE 1000    //used for standard orders of 1000 (seconds)
@@ -41,7 +51,7 @@ void usage(void) {
 #define needparam(n) do { \
     argc--; argv++; \
     if (argc == 0) { \
-        fprintf(stderr, "error: option %s needs a parameter\n", argv[n]); \
+        fprintf(stderr, "error: option %s needs one or more parameters\n", argv[n]); \
         usage(); \
         return -1; \
     } } while (0)
@@ -68,10 +78,12 @@ typedef struct {
     uint64_t seed;
     int max_pending;
     bool linear;
-
+    uint8_t operation;
     atomic_int pending;
     completion_t signal;
 } bio_random_args_t;
+
+static fifo_client_t* client;
 
 static uint64_t str_to_number(const char* str, uint16_t thousand) {
     char* end;
@@ -196,7 +208,7 @@ static zx_status_t blkdev_open(int fd, const char* dev, size_t bufsz, blkdev_t* 
         goto fail;
     }
 
-    return ZX_OK;
+    return block_fifo_create_client(blk->fifo, &client);
 
 fail:
     blkdev_close(blk);
@@ -214,6 +226,7 @@ size_t read_cline_args(int argc, char** argv, bio_random_args_t* bargs, char** d
             bargs->xfer = str_to_number(argv[0], BYTEMODE);
             if ((bargs->xfer == 0) || (bargs->xfer % 4096)) {
                 error("error: block size must be multiple of 4K\n");
+                return 0;
             }
         } else if (!strcmp(argv[0], "-tt")) {
             needparam(-1);
@@ -223,12 +236,9 @@ size_t read_cline_args(int argc, char** argv, bio_random_args_t* bargs, char** d
             size_t n = str_to_number(argv[0], BYTEMODE);
             if ((n < 1) || (n > 128)) {
                 error("error: max pending must be between 1 and 128\n");
+                return 0;
             }
             bargs->max_pending = n;
-        } else if (!strcmp(argv[0], "-linear")) {
-            bargs->linear = true;
-        } else if (!strcmp(argv[0], "-random")) {
-            bargs->linear = false;
         } else if(!(strcmp(argv[0], "-it"))) { //str_to_number of iterations
             needparam(-1);
             bargs->iters = str_to_number(argv[0], NUMMODE);
@@ -242,6 +252,16 @@ size_t read_cline_args(int argc, char** argv, bio_random_args_t* bargs, char** d
                 bargs->lbound = bargs->ubound;
                 bargs->ubound = temp;
             }
+        } else if (!strcmp(argv[0], "-read")) {
+            bargs->operation = BIO_READ_ONLY;
+        } else if (!strcmp(argv[0], "-write")) {
+            bargs->operation = BIO_WRITE_ONLY;
+        } else if (!strcmp(argv[0], "-read-write-reg")) {
+            bargs->operation = BIO_READ_WRITE_REG;
+        } else if (!strcmp(argv[0], "-linear")) {
+            bargs->linear = true;
+        } else if (!strcmp(argv[0], "-random")) {
+            bargs->linear = false;
         } else if (!strcmp(argv[0], "-h")) {
             usage();
             return 0;
@@ -273,15 +293,17 @@ int setup_blkdev(int argc, char** argv, bio_random_args_t* bargs) {
 
     size_t total = read_cline_args(argc, argv, bargs, dev_name);
 
+    if(total <= 0 || total == (size_t) -1) return -1;
 
-    if(total == 0) return 0;
+    zx_status_t r = 0;
 
     int fd;
     if ((fd = open(*dev_name, O_RDONLY)) < 0) {
         fprintf(stderr, "error: cannot open '%s'\n", argv[3]);
         return -1;
     }
-    if (blkdev_open(fd, argv[1], 8*1024*1024, bargs->blk) != ZX_OK) {
+    if ((r = blkdev_open(fd, argv[1], 8*1024*1024, bargs->blk)) != ZX_OK) {
+        DEBUG("create: %d\n", r);
         return -1;
     }
 
@@ -351,7 +373,7 @@ static int bio_random_thread(void* arg) {
         block_fifo_request_t req = {
             .txnid = GET(),
             .vmoid = a->blk->vmoid,
-            .opcode = BLOCKIO_READ | BLOCKIO_TXN_END,
+            // .opcode = BLOCKIO_READ | BLOCKIO_TXN_END,
             .length = xfer,
             .vmo_offset = off,
         };
@@ -375,11 +397,30 @@ static int bio_random_thread(void* arg) {
         fprintf(stderr, "IO tid=%u vid=%u op=%x len=%zu vof=%zu dof=%zu\n",
                 req.txnid, req.vmoid, req.opcode, req.length, req.vmo_offset, req.dev_offset);
 #endif
+        zx_status_t r = 0;
+        switch(a->operation) {
+        case BIO_READ_ONLY: 
+            req.opcode = BLOCKIO_READ | BLOCKIO_TXN_END;
+            r = zx_fifo_read(fifo, sizeof(req), &req, 1, NULL);
+            break;
+        case BIO_WRITE_ONLY: 
+            req.opcode = BLOCKIO_WRITE | BLOCKIO_TXN_END; 
+            r = zx_fifo_write(fifo, sizeof(req), &req, 1, NULL);
+            break;
+        }
         // zx_status_t r = zx_fifo_write(fifo, sizeof(req), &req, 1, NULL);
-        zx_status_t r = zx_fifo_read(fifo, sizeof(req), &req, 1, NULL);
+        // zx_status_t r = zx_fifo_read(fifo, sizeof(req), &req, 1, NULL);
         if (r == ZX_ERR_SHOULD_WAIT) {
-            r = zx_object_wait_one(fifo, ZX_FIFO_READABLE | ZX_FIFO_PEER_CLOSED,
+            switch(a->operation) {
+            case BIO_READ_ONLY: 
+                r = zx_object_wait_one(fifo, ZX_FIFO_READABLE | ZX_FIFO_PEER_CLOSED,
                                    ZX_TIME_INFINITE, NULL);
+                break;
+            case BIO_WRITE_ONLY: 
+                r = zx_object_wait_one(fifo, ZX_FIFO_WRITABLE | ZX_FIFO_PEER_CLOSED,
+                                   ZX_TIME_INFINITE, NULL);
+                break;
+            }
             if (r != ZX_OK) {
                 fprintf(stderr, "failed waiting for fifo\n");
                 zx_handle_close(fifo);
@@ -387,7 +428,7 @@ static int bio_random_thread(void* arg) {
             }
             continue;
         } else if (r < 0) {
-            fprintf(stderr, "error: failed writing fifo\n");
+            fprintf(stderr, "error: failed writing fifo\n");    //TODO or reading?
             zx_handle_close(fifo);
             return -1;
         }
@@ -412,17 +453,33 @@ static zx_status_t bio_random(bio_random_args_t* a, uint64_t* _total, zx_time_t*
 
     while (count > 0) {
         block_fifo_response_t resp;
-        zx_status_t r = zx_fifo_read(fifo, sizeof(resp), &resp, 1, NULL);
+        zx_status_t r = 0;
+        switch(a->operation) {
+        case BIO_READ_ONLY: 
+            r = zx_fifo_read(fifo, sizeof(resp), &resp, 1, NULL);
+            break;
+        case BIO_WRITE_ONLY: 
+            r = zx_fifo_write(fifo, sizeof(resp), &resp, 1, NULL);
+            break;
+        }
         if (r == ZX_ERR_SHOULD_WAIT) {
-            r = zx_object_wait_one(fifo, ZX_FIFO_WRITABLE | ZX_FIFO_PEER_CLOSED,
+            switch(a->operation) {
+            case BIO_READ_ONLY: 
+                r = zx_object_wait_one(fifo, ZX_FIFO_READABLE | ZX_FIFO_PEER_CLOSED,
                                    ZX_TIME_INFINITE, NULL);
+                break;
+            case BIO_WRITE_ONLY: 
+                r = zx_object_wait_one(fifo, ZX_FIFO_WRITABLE | ZX_FIFO_PEER_CLOSED,
+                                   ZX_TIME_INFINITE, NULL);
+                break;
+            }
             if (r != ZX_OK) {
                 fprintf(stderr, "failed waiting for fifo: %d\n", r);
                 goto fail;
             }
             continue;
         } else if (r < 0) {
-            fprintf(stderr, "error: failed reading fifo: %d\n", r);
+            fprintf(stderr, "error: failed reading fifo: %d\n", r);     //TODO or writing?
             goto fail;
         }
         if (resp.status != ZX_OK) {
@@ -453,10 +510,21 @@ fail:
 }
 int run_latency_trials(bio_random_args_t* a) {
     uint64_t current_iter;
-    zx_time_t res;
-    size_t total;
+    // zx_time_t res;
+    // size_t total;
     zx_duration_t wait = 0;
+    zx_status_t r = 0;
     bool range = true;
+    zx_time_t prev = 0;
+    uint64_t len = a->blk->info.block_size * a->blk->info.block_count;
+    block_fifo_request_t request = {
+        .txnid = a->blk->txnid,
+        .vmoid = a->blk->vmoid,
+        .opcode = BLOCKIO_READ,
+        .length = len > a->blk->info.block_size ? a->blk->info.block_size : len,
+        .vmo_offset = 0,
+        .dev_offset = 0
+    };
     if (a->lbound == a->ubound) {   //no range specified, take constant wait time
         wait = a->lbound;
         range = false;
@@ -466,19 +534,23 @@ int run_latency_trials(bio_random_args_t* a) {
         //TODO read/write
         //TODO trace
         //TODO linear/random
+
         if (range) {
             wait = (rand() % (a->ubound - a->lbound)) + a->lbound;
         }
-        res = 0;
-        total = 0;
-        if (bio_random(a, &total, &res) != ZX_OK) {
+        // res = 0;
+        // total = 0;
+        //TODO measure time here
+        prev = zx_deadline_after(0);
+        if ((r = block_fifo_txn(client, &request, 1)) != ZX_OK) {
             return -1;
         }
-
-        print_trial_data(res, total, a);
-        fprintf(stderr, "^^^Iteration number: %lu complete, waiting ", current_iter);
-        nsec_to_str(wait);
-        fprintf(stderr, "^^^\n\n");
+        nsec_to_str(zx_deadline_after(0) - prev);
+        fprintf(stderr, "\n");
+        // print_trial_data(res, total, a);
+        // fprintf(stderr, "^^^Iteration number: %lu complete, waiting ", current_iter);
+        // nsec_to_str(wait);
+        // fprintf(stderr, "^^^\n\n");
 
         zx_nanosleep(zx_deadline_after(ZX_NSEC(wait)));
     }
@@ -493,13 +565,14 @@ int main(int argc, char** argv) {
         .iters = 100,
         .lbound = 10,
         .ubound = 100,
+        .operation = BIO_WRITE_ONLY,
         .seed = 7891263897612ULL,
         .max_pending = 128,
         .pending = 0,
         .linear = true,
     };
     bio_random_args_t* bargs = &tmp;
-    setup_blkdev(argc, argv, bargs);
+    if(setup_blkdev(argc, argv, bargs) < 0) return 0;
     run_latency_trials(bargs);
     return 0;
 }
