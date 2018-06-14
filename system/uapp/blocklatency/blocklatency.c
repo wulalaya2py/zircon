@@ -24,14 +24,14 @@ void usage(void) {
         "For all <num> use k/K, m/M, and g/G for ease of use/conversion\n"
         "args:  -wt <num> <num>    wait time is_wait_range in nanoseconds between operations {default: 10-100ns}\n"
         "       -it <num>       number of operations to perform {default: 100}\n"
-        "       -bs <num>       transfer block size (multiple of 4K)\n"
+        "       -bs <num>       transfer block size (multiple of 4K) {default: 32k}\n"
         "       -tt <num>       total bytes to transfer\n"
         "       -mo <num>       maximum outstanding ops (1..128)\n"
         "       -read           only performs reads {default}\n"
         "       -write          only performs writes\n"
         "       -read-write-reg alternates between read and write\n"
-        "       -linear         transfers in linear order\n"
-        "       -random         random transfers across total is_wait_range {default}\n"
+        "       -linear         transfers in linear order {default}\n"
+        "       -random         transfers in random order\n"
         );
 
 }
@@ -292,7 +292,6 @@ static void fill_buffer(blkdev_t* blk, size_t len) {
     for(i = 0; i < len/8; i++) {
         buffer[i] = rand();
     }
-    zx_vmo_write(blk->vmo, buf, 0, len);    //bufsize may be too large (try len)
 }
 
 static void print_buffer(uint64_t begin, uint64_t end) {
@@ -339,8 +338,6 @@ static int setup_blkdev(int argc, char** argv, bio_random_args_t* bargs) {
     }
     bargs->count = total / bargs->xfer;
     bargs->count += total % bargs->xfer ? 1 : 0;    //Add one more txn if a full one can't be done at the end
-
-    //TODO generate items for buffer
 
     return 0;
 }
@@ -536,54 +533,61 @@ fail:
     return ZX_ERR_IO;
 }
 
-static zx_status_t block_linear_io(bio_random_args_t* a, block_fifo_request_t* request, size_t dev_total) {
+///Performs block_fifo_txn's specified by a and request
+/**
+ * Loops for a->count number of times performing txn's of request->length blocks at a time,
+ * Before each txn, the offset and length are computed for both the vmo and dev
+ * Returns ZX_OK upon completion or if block_fifo_txn fails, returns its status
+ */
+static zx_status_t block_linear_io(bio_random_args_t* a, block_fifo_request_t* request) {
     zx_status_t r = ZX_OK;
-    uint64_t num_txn;
-    uint64_t vmo_offset, vmo_length;
-    size_t block_count = a->blk->info.block_count;
-    size_t block_size = a->blk->info.block_size;
+    uint64_t num_txn;       //current txn we're on
+    uint64_t vmo_offset, vmo_length, vmo_size;  //vmo_offset is in blocks, the others are bytes
+    zx_vmo_get_size(a->blk->vmo, &vmo_size);
+    size_t block_count = a->blk->info.block_count;  //number of total blocks
+    size_t block_size = a->blk->info.block_size;    //size of a block in bytes
 
-    for(num_txn = 0; num_txn < a->count; num_txn++) {
+    //loop for number of operations calculated in setup_blkdev
+    for(num_txn = 0; num_txn < a->count; num_txn++) {   
         
         request->dev_offset = (num_txn * a->xfer) / block_size;    //go to next integer block
         if(request->dev_offset + request->length > block_count) {//Don't read/write out of device bounds
             request->length = block_count - request->dev_offset;   //use remaining length of device
         }
-        vmo_offset = num_txn * a->xfer;                             //go to next chunk in buffer
+        vmo_offset = num_txn * a->xfer;                             //go to next chunk in vmo
         vmo_length = request->length * block_size;                  //size of next chunk
-        if(vmo_length + vmo_offset > bufsz) {                       //wrap around if OOB
+        if(vmo_length + vmo_offset > vmo_size) {                       //wrap around if OOB
             vmo_offset = 0;
         }
+        request->vmo_offset = vmo_offset / block_size;
 
-        if(request->opcode & BLOCKIO_WRITE) {           //write to vmo from buf
-            zx_vmo_write(a->blk->vmo, buf, vmo_offset, vmo_length);
-        } 
         if ((r = block_fifo_txn(client, request, 1)) != ZX_OK) {    //read/write from/to vmo and dev
             return r;
         }
-        if(request->opcode & BLOCKIO_READ) {            //read from vmo to buf
-            zx_vmo_read(a->blk->vmo, buf, vmo_offset, vmo_length);
-        }
 
-        fprintf(stderr, "Numblks: %lu, Curoff: %lu, length: %lu\n", block_count, request->dev_offset, request->length);
     }
     return ZX_OK;
 }
 
+///Performs read/write requests on a block device determined and with arguments determined by read_cline_args with 
+/**
+ * Will perform random or linear transactions with arguments in "a" determining length,
+ * offset on the device, combinations of read and write, and wait times between operations
+ */
 zx_status_t run_latency_trials(bio_random_args_t* a) {
     srand(a->seed);
     zx_duration_t wait = 0;
     zx_status_t r = 0;
     bool is_wait_range = true;
+    bool alternate_rw = a->operation == (BLOCKIO_READ | BLOCKIO_WRITE);
     zx_time_t prev = 0;
-    size_t dev_total = a->blk->info.block_count * a->blk->info.block_size;
     block_fifo_request_t request = {
         .txnid = a->blk->txnid,
         .vmoid = a->blk->vmoid,
-        .opcode = a->operation,
+        .opcode = alternate_rw ? BLOCKIO_READ : a->operation,   //if we are alternating, start on read
         .length = a->xfer / a->blk->info.block_size,    //need an integer number of actual blocks
-        .vmo_offset = 0,        //number of bytes offset
-        .dev_offset = 0         //number of blocks offset
+        .vmo_offset = 0,        //number of blocks offset for vmo
+        .dev_offset = 0         //number of blocks offset for dev
     };
 
 
@@ -600,14 +604,15 @@ zx_status_t run_latency_trials(bio_random_args_t* a) {
         }
 
         fill_buffer(a->blk, bufsz);     //Fill with random numbers
+
         prev = zx_deadline_after(0);    //for recording time per iteration
-        if((r = block_linear_io(a, &request, dev_total)) != ZX_OK) {
+        if((r = block_linear_io(a, &request)) != ZX_OK) {
             fprintf(stderr, "Errno: %d\n", r);
         }
         nsec_to_str(zx_deadline_after(0) - prev);
         fprintf(stderr, "\n");
 
-        request.opcode ^= BLOCKIO_READ | BLOCKIO_WRITE; //alternate between read and write
+        if(alternate_rw) request.opcode ^= BLOCKIO_READ | BLOCKIO_WRITE; //alternate between read and write
 
         zx_nanosleep(zx_deadline_after(ZX_NSEC(wait)));
     }
@@ -617,13 +622,13 @@ zx_status_t run_latency_trials(bio_random_args_t* a) {
 int main(int argc, char** argv) {
     zx_status_t r = ZX_OK;
     blkdev_t blk;
-    bio_random_args_t tmp = {
+    bio_random_args_t tmp = {   //default settings
         .blk = &blk,
         .xfer = 32768,
         .iters = 100,
         .lbound = 10,
         .ubound = 100,
-        .operation = BLOCKIO_WRITE,
+        .operation = BLOCKIO_READ,
         .seed = 7891263897612ULL,
         .max_pending = 128,
         .pending = 0,
