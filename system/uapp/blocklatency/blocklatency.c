@@ -78,7 +78,7 @@ typedef struct {
     uint8_t operation;
     atomic_int pending;
     completion_t signal;
-} bio_random_args_t;
+} latency_args_t;
 
 static fifo_client_t* client;
 static void* buf;
@@ -146,7 +146,7 @@ static void nsec_to_str(uint64_t nanos) {
     fprintf(stderr, "%07.3f %s", ftime, unit);
 }
 
-static void print_trial_data(zx_time_t res, size_t total, bio_random_args_t* a) {
+static void print_trial_data(zx_time_t res, size_t total, latency_args_t* a) {
     fprintf(stderr, "%zu bytes in ", total);
     nsec_to_str(res);
     fprintf(stderr, ": ");
@@ -219,7 +219,7 @@ fail:
     return ZX_ERR_INTERNAL;
 }
 
-size_t read_cline_args(int argc, char** argv, bio_random_args_t* bargs, char** dev_name) {
+size_t read_cline_args(int argc, char** argv, latency_args_t* bargs, char** dev_name) {
     size_t total = 0;
     while (argc > 0) {
         if (argv[0][0] != '-') {
@@ -307,7 +307,7 @@ static void print_buffer(uint64_t begin, uint64_t end) {
 }
 
 //Sets up blk for use as well as reads other arguments
-static int setup_blkdev(int argc, char** argv, bio_random_args_t* bargs) {
+static int setup_blkdev(int argc, char** argv, latency_args_t* bargs) {
 
     nextarg();
 
@@ -374,7 +374,7 @@ static void PUT(uint64_t n) {
     }
 }
 static int bio_random_thread(void* arg) {
-    bio_random_args_t* a = (bio_random_args_t*) arg;
+    latency_args_t* a = (latency_args_t*) arg;
 
     size_t off = 0;
     size_t count = a->count;
@@ -464,7 +464,7 @@ static int bio_random_thread(void* arg) {
 }
 
 
-static zx_status_t bio_random(bio_random_args_t* a, uint64_t* _total, zx_time_t* _res) {
+static zx_status_t bio_random(latency_args_t* a, uint64_t* _total, zx_time_t* _res) {
 
     thrd_t t;
     int r;
@@ -533,13 +533,54 @@ fail:
     return ZX_ERR_IO;
 }
 
+///Performs block_fifo_txn's specified by a and request on a random location
+/**
+ * Loops for a->count number of times performing txn's of request->length blocks at a time,
+ * Before each txn, the offset and length are computed for both the vmo and dev
+ * Returns ZX_OK upon completion or if block_fifo_txn fails, returns its status
+ */
+static zx_status_t block_random_io(latency_args_t* a, block_fifo_request_t* request, rand64_t* seed) {
+    zx_status_t r = ZX_OK;
+    uint64_t num_txn;                                               //current txn we're on
+    uint64_t vmo_offset, vmo_length, vmo_size;                      //vmo_offset is in blocks, the others are bytes
+    zx_vmo_get_size(a->blk->vmo, &vmo_size);
+    size_t block_count = a->blk->info.block_count;                  //number of total blocks
+    size_t block_size = a->blk->info.block_size;                    //size of a block in bytes
+
+    request->dev_offset = rand64(seed) % block_count;
+
+    //loop for number of operations calculated in setup_blkdev
+    for(num_txn = 0; num_txn < a->count; num_txn++) {   
+        
+        request->dev_offset += (num_txn * a->xfer) / block_size;    //go to next integer block
+        request->dev_offset %= block_count;
+        if(request->dev_offset + request->length > block_count) {   //Don't read/write out of device bounds
+            request->length = block_count - request->dev_offset;    //use remaining length of device
+        }
+        vmo_offset = num_txn * a->xfer;                             //go to next chunk in vmo
+        vmo_length = request->length * block_size;                  //size of next chunk
+        if(vmo_length + vmo_offset > vmo_size) {                    //wrap around if OOB
+            vmo_offset = 0;
+        }
+        request->vmo_offset = vmo_offset / block_size;
+
+        fprintf(stderr, "Devsize: %lu, CurBlock: %lu, CurLength: %lu\n", block_count, request->dev_offset, request->length);
+
+        if ((r = block_fifo_txn(client, request, 1)) != ZX_OK) {    //read/write from/to vmo and dev
+            return r;
+        }
+
+    }
+    return ZX_OK;
+}
+
 ///Performs block_fifo_txn's specified by a and request
 /**
  * Loops for a->count number of times performing txn's of request->length blocks at a time,
  * Before each txn, the offset and length are computed for both the vmo and dev
  * Returns ZX_OK upon completion or if block_fifo_txn fails, returns its status
  */
-static zx_status_t block_linear_io(bio_random_args_t* a, block_fifo_request_t* request) {
+static zx_status_t block_linear_io(latency_args_t* a, block_fifo_request_t* request) {
     zx_status_t r = ZX_OK;
     uint64_t num_txn;       //current txn we're on
     uint64_t vmo_offset, vmo_length, vmo_size;  //vmo_offset is in blocks, the others are bytes
@@ -574,7 +615,7 @@ static zx_status_t block_linear_io(bio_random_args_t* a, block_fifo_request_t* r
  * Will perform random or linear transactions with arguments in "a" determining length,
  * offset on the device, combinations of read and write, and wait times between operations
  */
-zx_status_t run_latency_trials(bio_random_args_t* a) {
+zx_status_t run_latency_trials(latency_args_t* a) {
     srand(a->seed);
     zx_duration_t wait = 0;
     zx_status_t r = 0;
@@ -589,6 +630,7 @@ zx_status_t run_latency_trials(bio_random_args_t* a) {
         .vmo_offset = 0,        //number of blocks offset for vmo
         .dev_offset = 0         //number of blocks offset for dev
     };
+    rand64_t seed = RAND63SEED(a->seed);
 
 
     if (a->lbound == a->ubound) {   //no wait range specified, take constant wait time
@@ -597,16 +639,16 @@ zx_status_t run_latency_trials(bio_random_args_t* a) {
     }
     uint64_t current_iter;
     for (current_iter = 1; current_iter <= a->iters; current_iter++) {
-        //TODO linear/random
 
         if (is_wait_range) {
-            wait = (rand() % (a->ubound - a->lbound)) + a->lbound;
+            wait = (rand64(&seed) % (a->ubound - a->lbound)) + a->lbound;
         }
 
         fill_buffer(a->blk, bufsz);     //Fill with random numbers
 
         prev = zx_deadline_after(0);    //for recording time per iteration
-        if((r = block_linear_io(a, &request)) != ZX_OK) {
+        r = a->linear ? block_linear_io(a, &request) : block_random_io(a, &request, &seed);
+        if(r != ZX_OK) {
             fprintf(stderr, "Errno: %d\n", r);
         }
         nsec_to_str(zx_deadline_after(0) - prev);
@@ -622,7 +664,7 @@ zx_status_t run_latency_trials(bio_random_args_t* a) {
 int main(int argc, char** argv) {
     zx_status_t r = ZX_OK;
     blkdev_t blk;
-    bio_random_args_t tmp = {   //default settings
+    latency_args_t tmp = {   //default settings
         .blk = &blk,
         .xfer = 32768,
         .iters = 100,
@@ -634,7 +676,7 @@ int main(int argc, char** argv) {
         .pending = 0,
         .linear = true,
     };
-    bio_random_args_t* bargs = &tmp;
+    latency_args_t* bargs = &tmp;
     if(setup_blkdev(argc, argv, bargs) < 0) return 0;
     if((r = run_latency_trials(bargs)) != ZX_OK) {
         fprintf(stderr, "Error #: %d\n", r);
