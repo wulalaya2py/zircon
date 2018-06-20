@@ -204,21 +204,16 @@ zx_status_t ChannelDispatcher::Write(fbl::unique_ptr<MessagePacket> msg) {
     AutoReschedDisable resched_disable; // Must come before the AutoLock.
     resched_disable.Disable();
     AutoLock lock(get_lock());
-    if (!peer_) {
-        // |msg| will be destroyed but we want to keep the handles alive since
-        // the caller should put them back into the process table.
-        msg->set_owns_handles(false);
-        return ZX_ERR_PEER_CLOSED;
-    }
 
+    if (!peer_)
+        return ZX_ERR_PEER_CLOSED;
     peer_->WriteSelf(fbl::move(msg));
 
     return ZX_OK;
 }
 
 zx_status_t ChannelDispatcher::Call(fbl::unique_ptr<MessagePacket> msg,
-                                    zx_time_t deadline, bool* return_handles,
-                                    fbl::unique_ptr<MessagePacket>* reply) {
+                                    zx_time_t deadline, fbl::unique_ptr<MessagePacket>* reply) {
 
     canary_.Assert();
 
@@ -236,10 +231,6 @@ zx_status_t ChannelDispatcher::Call(fbl::unique_ptr<MessagePacket> msg,
         AutoLock lock(get_lock());
 
         if (!peer_) {
-            // |msg| will be destroyed but we want to keep the handles alive since
-            // the caller should put them back into the process table.
-            msg->set_owns_handles(false);
-            *return_handles = true;
             waiter->EndWait(reply);
             return ZX_ERR_PEER_CLOSED;
         }

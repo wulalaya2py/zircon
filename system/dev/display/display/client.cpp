@@ -43,7 +43,7 @@ zx_status_t decode_message(fidl::Message* msg) {
     SELECT_TABLE_CASE(fuchsia_display_ControllerSetLayerImage);
     SELECT_TABLE_CASE(fuchsia_display_ControllerCheckConfig);
     SELECT_TABLE_CASE(fuchsia_display_ControllerApplyConfig);
-    SELECT_TABLE_CASE(fuchsia_display_ControllerSetOwnership);
+    SELECT_TABLE_CASE(fuchsia_display_ControllerSetVirtconMode);
     SELECT_TABLE_CASE(fuchsia_display_ControllerComputeLinearImageStride);
     SELECT_TABLE_CASE(fuchsia_display_ControllerAllocateVmo);
     }
@@ -148,7 +148,7 @@ void Client::HandleControllerApi(async_t* async, async::WaitBase* self,
     HANDLE_REQUEST_CASE(SetLayerImage);
     HANDLE_REQUEST_CASE(CheckConfig);
     HANDLE_REQUEST_CASE(ApplyConfig);
-    HANDLE_REQUEST_CASE(SetOwnership);
+    HANDLE_REQUEST_CASE(SetVirtconMode);
     HANDLE_REQUEST_CASE(ComputeLinearImageStride);
     case fuchsia_display_ControllerAllocateVmoOrdinal: {
         auto r = reinterpret_cast<const fuchsia_display_ControllerAllocateVmoRequest*>(msg.bytes().data());
@@ -373,7 +373,9 @@ void Client::HandleSetDisplayMode(const fuchsia_display_ControllerSetDisplayMode
             if ((*timings).horizontal_addressable == req->mode.horizontal_resolution
                     && (*timings).vertical_addressable == req->mode.vertical_resolution
                     && calculate_refresh_rate_e2(*timings) == req->mode.refresh_rate_e2) {
-                populate_display_mode(*timings, &config->current_.mode);
+                populate_display_mode(*timings, &config->pending_.mode);
+                pending_config_valid_ = false;
+                config->mode_change_ = true;
                 return;
             }
         }
@@ -540,6 +542,9 @@ void Client::HandleCheckConfig(const fuchsia_display_ControllerCheckConfigReques
                 config.pending_layers_.push_front(layer);
             }
             config.pending_layer_change_ = false;
+
+            config.pending_.mode = config.current_.mode;
+            config.mode_change_ = false;
         }
         pending_config_valid_ = true;
     }
@@ -566,6 +571,11 @@ void Client::HandleApplyConfig(const fuchsia_display_ControllerApplyConfigReques
     }
 
     for (auto& display_config : configs_) {
+        if (display_config.mode_change_) {
+            display_config.current_.mode = display_config.pending_.mode;
+            display_config.mode_change_ = false;
+        }
+
         // Put the pending image in the wait queue (the case where it's already ready
         // will be handled later). This needs to be done before migrating layers, as
         // that needs to know if there are any waiting images.
@@ -656,14 +666,14 @@ void Client::HandleApplyConfig(const fuchsia_display_ControllerApplyConfigReques
     ApplyConfig();
 }
 
-void Client::HandleSetOwnership(const fuchsia_display_ControllerSetOwnershipRequest* req,
+void Client::HandleSetVirtconMode(const fuchsia_display_ControllerSetVirtconModeRequest* req,
                                 fidl::Builder* resp_builder, const fidl_type_t** resp_table) {
-    // Only the virtcon can control ownership
     if (!is_vc_) {
-        zxlogf(SPEW, "Ignoring non-virtcon ownership\n");
+        zxlogf(ERROR, "Illegal non-virtcon ownership\n");
+        TearDown();
         return;
     }
-    controller_->SetVcOwner(req->active);
+    controller_->SetVcMode(req->mode);
 }
 
 void Client::HandleComputeLinearImageStride(

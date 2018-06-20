@@ -11,6 +11,7 @@
 #include <threads.h>
 
 #include <block-client/client.h>
+#include <blk-op/blk-op.h>
 #include <zircon/syscalls.h>
 #include <zircon/device/block.h>
 #include <zircon/misc/xorshiftrand.h>
@@ -22,16 +23,16 @@ void usage(void) {
     fprintf(stderr, "usage: blocklatency <args> <device>\n"
         "\n"
         "For all <num> use k/K, m/M, and g/G for ease of use/conversion\n"
-        "args:  -wt <num> <num>    wait time is_wait_range in nanoseconds between operations {default: 10-100ns}\n"
-        "       -it <num>       number of operations to perform {default: 100}\n"
-        "       -tc <num>       number of threads to run on\n"
-        "       -ts <num>       transfer size in bytes\n"
-        "       -mo <num>       maximum outstanding ops (1..128)\n"
-        "       -read           only performs reads {default}\n"
-        "       -write          only performs writes\n"
-        "       -read-write     alternates between read and write randomly\n"
-        "       -linear         transfers in linear order {default}\n"
-        "       -random         transfers in random order\n"
+        "args:  -wt <num> <num>  wait time is_wait_range in nanoseconds between operations {default: 10-100ns}\n"
+        "       -it <num>        number of operations to perform {default: 100}\n"
+        "       -tc <num>        number of threads to run on\n"
+        "       -ts <num>        transfer size in bytes\n"
+        "       -mo <num>        maximum outstanding ops (1..128)\n"
+        "       -read            only performs reads {default}\n"
+        "       -write           only performs writes\n"
+        "       -read-write      alternates between read and write randomly\n"
+        "       -linear <num>    transfers in linear order starting at specified block offset\n"
+        "       -random          transfers in random order {default}\n"
         );
 
 }
@@ -56,16 +57,6 @@ void usage(void) {
 #define error(x...) do { fprintf(stderr, x); usage(); return -1; } while (0)
 
 typedef struct {
-    int fd;
-    zx_handle_t vmo;
-    zx_handle_t fifo;
-    txnid_t txnid;
-    vmoid_t vmoid;
-    size_t bufsz;
-    block_info_t info;
-} blkdev_t;
-
-typedef struct {
     blkdev_t* blk;
     size_t transfer_size;
     size_t thread_count;
@@ -75,19 +66,13 @@ typedef struct {
     uint64_t seed;
     int max_pending;
     bool linear;
+    uint64_t offset;
     uint8_t operation;
     atomic_int pending;
-    completion_t signal;
 } latency_args_t;
 
-typedef struct {
-    block_fifo_request_t* req;
-    uint64_t thrd_num;
-} block_thread_args_t;
-
-completion_t* completions;
+static completion_t* completions;
 static latency_args_t largs;
-static fifo_client_t* client;
 static void* buf;
 static const uint64_t bufsz = 8*1024*1024;
 
@@ -132,66 +117,24 @@ static void nsec_to_str(uint64_t nanos) {
     fprintf(stderr, "%07.3f %s", ftime, unit);
 }
 
-static void blkdev_close(blkdev_t* blk) {
-    if (blk->fd >= 0) {
-        close(blk->fd);
+static void fill_buffer(rand64_t seed, uint64_t len) {
+    uint64_t i;
+    uint64_t* buffer = buf;
+    for(i = 0; i < len/8; i++) {
+        buffer[i] = rand64(&seed);
     }
-    zx_handle_close(blk->vmo);
-    zx_handle_close(blk->fifo);
-    memset(blk, 0, sizeof(blkdev_t));
-    blk->fd = -1;
 }
 
-static zx_status_t blkdev_open(int fd, const char* dev, size_t bufsz, blkdev_t* blk) {
-    memset(blk, 0, sizeof(blkdev_t));
-    blk->fd = fd;
-    blk->bufsz = bufsz;
-
-    zx_status_t r;
-    if (ioctl_block_get_info(fd, &blk->info) != sizeof(block_info_t)) {
-        fprintf(stderr, "error: cannot get block device info for '%s'\n", dev);
-        goto fail;
-    }
-    if (ioctl_block_get_fifos(fd, &blk->fifo) != sizeof(zx_handle_t)) {
-        fprintf(stderr, "error: cannot get fifo for '%s'\n", dev);
-        goto fail;
-    }
-    if ((r = zx_vmo_create(bufsz, 0, &blk->vmo)) != ZX_OK) {
-        fprintf(stderr, "error: out of memory %d\n", r);
-        goto fail;
-    }
-    if((r = zx_vmar_map(zx_vmar_root_self(), 0, blk->vmo, 0, bufsz, ZX_VM_FLAG_PERM_READ | 
-                ZX_VM_FLAG_PERM_WRITE, (uintptr_t*) &buf) != ZX_OK)) {
-        fprintf(stderr, "error: failed to map vmo %d\n", r);
-        goto fail;
-    }
-
-    for (uint8_t n = 0; n < 128; n++) {
-        if (ioctl_block_alloc_txn(fd, &blk->txnid) != sizeof(txnid_t)) {
-            fprintf(stderr, "error: cannot allocate txn for '%s'\n", dev);
-            goto fail;
+static void print_buffer(uint64_t begin, uint64_t end) {
+    uint64_t i, k = begin;
+    uint8_t* buffer = buf;
+    while(k < end) {
+        for(i = 0; i < 66; i++) {
+            fprintf(stderr, "%03d ", buffer[k]);
+            if(++k >= end) break;
         }
-        if (blk->txnid != n) {
-            fprintf(stderr, "error: unexpected txid %u\n", blk->txnid);
-            goto fail;
-        }
+        fprintf(stderr, "\n");
     }
-
-    zx_handle_t dup;
-    if ((r = zx_handle_duplicate(blk->vmo, ZX_RIGHT_SAME_RIGHTS, &dup)) != ZX_OK) {
-        fprintf(stderr, "error: cannot duplicate handle %d\n", r);
-        goto fail;
-    }
-    if (ioctl_block_attach_vmo(fd, &dup, &blk->vmoid) != sizeof(vmoid_t)) {
-        fprintf(stderr, "error: cannot attach vmo for '%s'\n", dev);
-        goto fail;
-    }
-
-    return block_fifo_create_client(blk->fifo, &client);
-
-fail:
-    blkdev_close(blk);
-    return ZX_ERR_INTERNAL;
 }
 
 size_t read_cline_args(int argc, char** argv, char** dev_name) {
@@ -235,6 +178,8 @@ size_t read_cline_args(int argc, char** argv, char** dev_name) {
             largs.operation = BLOCKIO_READ | BLOCKIO_WRITE;
         } else if (!strcmp(argv[0], "-linear")) {
             largs.linear = true;
+            needparam(-1);
+            largs.offset = str_to_number(argv[0], NUMMODE);
         } else if (!strcmp(argv[0], "-random")) {
             largs.linear = false;
         } else if (!strcmp(argv[0], "-h") || !strcmp(argv[0], "--help")) {
@@ -257,51 +202,30 @@ size_t read_cline_args(int argc, char** argv, char** dev_name) {
     return r;
 }
 
-static void fill_buffer(blkdev_t* blk, size_t len) {
-    size_t i;
-    uint64_t* buffer = buf;
-    for(i = 0; i < len/8; i++) {
-        buffer[i] = rand();
-    }
-}
-
-static void print_buffer(uint64_t begin, uint64_t end) {
-    uint64_t i, k = begin;
-    uint8_t* buffer = buf;
-    while(k < end) {
-        for(i = 0; i < 66; i++) {
-            fprintf(stderr, "%03d ", buffer[k]);
-            if(++k >= end) break;
-        }
-        fprintf(stderr, "\n");
-    }
-}
-
 //Sets up blk for use as well as reads other arguments
-static int setup_blkdev(int argc, char** argv) {
-
+static int setup_blkdev(int argc, char** argv, fifo_client_t** client) {
     nextarg();
-
-    largs.signal = COMPLETION_INIT;
-
     char* dev_name[50];       //path to device or device name
 
     zx_status_t r = read_cline_args(argc, argv, dev_name);
 
     if (r != ZX_OK) return r;
 
-
     int fd;
+    
     if ((fd = open(*dev_name, O_RDONLY)) < 0) {
         fprintf(stderr, "error: cannot open '%s'\n", *dev_name);
         return -1;
     }
-    if ((r = blkdev_open(fd, *dev_name, bufsz, largs.blk)) != ZX_OK) {
+    if ((r = blkdev_open(fd, *dev_name, bufsz, largs.blk, client, &buf)) != ZX_OK) {
+        fprintf(stderr, "error: cannot open '%s' %d\n", *dev_name, r);
         return -1;
     }
-
     size_t devtotal = largs.blk->info.block_count * largs.blk->info.block_size;
 
+    if((largs.offset * largs.blk->info.block_size) + largs.transfer_size > devtotal) {
+        error("Offset and length will go out of bounds\n");
+    }
     
     if (largs.transfer_size % largs.blk->info.block_size) {
         error("Transfer size must be multiple of block_size\n");
@@ -313,38 +237,6 @@ static int setup_blkdev(int argc, char** argv) {
     return 0;
 }
 
-static atomic_uint_fast64_t IDMAP0 = 0xFFFFFFFFFFFFFFFFULL;
-static atomic_uint_fast64_t IDMAP1 = 0xFFFFFFFFFFFFFFFFULL;
-static txnid_t GET(void) {
-    uint64_t n = __builtin_ffsll(atomic_load(&IDMAP0));
-    if (n > 0) {
-        n--;
-        atomic_fetch_and(&IDMAP0, ~(1ULL << n));
-        return n;
-    } else if ((n = __builtin_ffsll(atomic_load(&IDMAP1))) > 0) {
-        n--;
-        atomic_fetch_and(&IDMAP1, ~(1ULL << n));
-        return n + 64;
-    } else {
-        fprintf(stderr, "FATAL OUT OF IDS\n");
-        sleep(100);
-        exit(-1);
-    }
-}
-
-static void PUT(uint64_t n) {
-    if (n > 127) {
-        fprintf(stderr, "FATAL BAD ID %zu\n", n);
-        sleep(100);
-        exit(-1);
-    }
-    if (n > 63) {
-        atomic_fetch_or(&IDMAP1, 1ULL << (n - 64));
-    } else {
-        atomic_fetch_or(&IDMAP0, 1ULL << n);
-    }
-}
-
 ///Thread for performing block_fifo_txns
 /**
  * Divides a transaction into base_request->length / vmo_size txns
@@ -353,6 +245,7 @@ int block_thread_io(void* arg) {
     zx_status_t status;
     block_thread_args_t* bthread = arg;
     block_fifo_request_t* base_request = bthread->req;
+    fifo_client_t* client = bthread->client;
     size_t vmo_size;
     zx_vmo_get_size(largs.blk->vmo, &vmo_size);
     
@@ -367,15 +260,23 @@ int block_thread_io(void* arg) {
         reqs[i].length = base_request->length / num_txns;
         base_request->dev_offset += reqs[i].length;
     }
-    int32_t cmp = largs.max_pending - num_txns;
-    while(atomic_load(&largs.pending) > cmp) {
-        fprintf(stderr, "Too many outstanding\n");
+    uint64_t num_todo = num_txns, offset = 0;
+    while(num_todo > 0) {
+        uint64_t this_iter = num_todo;
+        //if we can't do them all this iteration, try the remaining amount
+        while(atomic_fetch_add(&largs.pending, this_iter) > largs.max_pending) {
+            atomic_fetch_sub(&largs.pending, this_iter);
+            this_iter = largs.max_pending - largs.pending;
+            fprintf(stderr, "Too many outstanding\n");
+        }
+
+        if((status = block_fifo_txn(client, &reqs[offset], this_iter)) != ZX_OK) {
+            fprintf(stderr, "Errno: %d\n", status);
+        }
+        num_todo -= this_iter;
+        offset += this_iter;
+        atomic_fetch_sub(&largs.pending, this_iter);
     }
-    atomic_fetch_add(&largs.pending, num_txns);
-    if((status = block_fifo_txn(client, reqs, num_txns)) != ZX_OK) {
-        fprintf(stderr, "Errno: %d\n", status);
-    }
-    atomic_fetch_sub(&largs.pending, num_txns);
     PUT(reqs->txnid);
     completion_signal(&completions[bthread->thrd_num]);
     free(reqs);
@@ -383,8 +284,8 @@ int block_thread_io(void* arg) {
 }
 
 ///Takes requests and distributes them across threads - one request object per thread
-static zx_status_t block_io(block_fifo_request_t* requests, rand64_t* seed) {
-    uint64_t cur_thread;                                               //current txn we're on
+static zx_status_t block_io(fifo_client_t* client, block_fifo_request_t* requests, rand64_t* seed) {
+    uint64_t cur_thread;
     thrd_t* thrds = malloc(largs.thread_count * sizeof(zx_handle_t));
     completions = malloc(largs.thread_count * sizeof(completion_t));
     block_thread_args_t* bt = malloc(largs.thread_count * sizeof(block_thread_args_t));
@@ -392,11 +293,11 @@ static zx_status_t block_io(block_fifo_request_t* requests, rand64_t* seed) {
     for(cur_thread = 0; cur_thread < largs.thread_count; cur_thread++) {     
         bt[cur_thread].req = &requests[cur_thread];
         bt[cur_thread].thrd_num = cur_thread;
+        bt[cur_thread].client = client;
         completions[cur_thread] = COMPLETION_INIT;
         thrd_create(&thrds[cur_thread], block_thread_io, &bt[cur_thread]);
     }
     for(cur_thread = 0; cur_thread < largs.thread_count; cur_thread++) {   
-        fprintf(stderr, "Waiting on thread: %lu\n", cur_thread);
         if((completion_wait_deadline(&completions[cur_thread], zx_deadline_after(ZX_SEC(10)))) != ZX_OK) {
             fprintf(stderr, "Timed out on Thread_num: %lu\n", cur_thread);
         }
@@ -412,7 +313,7 @@ static zx_status_t block_io(block_fifo_request_t* requests, rand64_t* seed) {
 static void setup_requests(block_fifo_request_t* requests, rand64_t* seed) {
     bool alternate_rw = largs.operation == (BLOCKIO_READ | BLOCKIO_WRITE);
     uint64_t txn_blocks_total = largs.transfer_size / largs.blk->info.block_size;
-    uint64_t length = txn_blocks_total / largs.thread_count;
+    uint64_t length_per_thread = txn_blocks_total / largs.thread_count;
     //some threads will have a larger transfer size
     uint64_t remainders = txn_blocks_total % largs.thread_count;
 
@@ -421,27 +322,29 @@ static void setup_requests(block_fifo_request_t* requests, rand64_t* seed) {
     requests[0].vmoid = largs.blk->vmoid;
     requests[0].opcode = alternate_rw ? BLOCKIO_READ : largs.operation;   //if we are alternating, start on read
     requests[0].txnid = GET();
-    requests[0].length = length;    //will be changed in linear_io/random_io
+    requests[0].length = length_per_thread;
     if(remainders) {                //some threads will have one more block to transfer
         requests[0].length += 1;
         remainders--;
     }
-
     if(largs.linear) {
         requests[0].vmo_offset = 0;        //number of blocks offset for vmo
-        requests[0].dev_offset = 0;         //number of blocks offset for dev
+        requests[0].dev_offset = largs.offset;         //number of blocks offset for dev
     } else {
         uint64_t num = rand64(seed);
-        requests[0].vmo_offset = 0;        
-        requests[0].dev_offset = num % (dev_block_count - txn_blocks_total); //number of blocks offset for dev, account for OOB
+        requests[0].vmo_offset = 0;
+        if(dev_block_count - txn_blocks_total <= 0) {
+            requests[0].dev_offset = 0;
+        } else {
+            requests[0].dev_offset = num % (dev_block_count - txn_blocks_total); //number of blocks offset for dev, account for OOB
+        }
     }
-
     uint64_t i;
     for(i = 1; i < largs.thread_count; i++) {
         requests[i].txnid = GET();
         requests[i].vmoid = largs.blk->vmoid;
         requests[i].opcode = alternate_rw ? BLOCKIO_READ : largs.operation;   //if we are alternating, start on read
-        requests[i].length = length;    //will be changed in linear_io/random_io
+        requests[i].length = length_per_thread;    //will be changed in linear_io/random_io
         if(remainders) {                //some threads will have one more block to transfer
             requests[i].length += 1;
             remainders--;
@@ -456,8 +359,7 @@ static void setup_requests(block_fifo_request_t* requests, rand64_t* seed) {
  * Will perform random or linear transactions with arguments in "a" determining length,
  * offset on the device, combinations of read and write, and wait times between operations
  */
-zx_status_t run_latency_trials(void) {
-    srand(largs.seed);
+zx_status_t run_latency_trials(fifo_client_t* client) {
     zx_duration_t wait = 0;
     zx_status_t r = 0;
     bool is_wait_range = true;
@@ -474,22 +376,22 @@ zx_status_t run_latency_trials(void) {
     uint64_t i;
     for (i = 0; i < largs.iters; i++) {
         setup_requests(requests, &seed);
-
         if (is_wait_range) {
             wait = (rand64(&seed) % (largs.ubound - largs.lbound)) + largs.lbound;
         }
 
-        fill_buffer(largs.blk, bufsz);     //Fill with random numbers
-
+        fill_buffer(seed, bufsz);     //Fill with random numbers
         prev = zx_clock_get(ZX_CLOCK_MONOTONIC);    //for recording time per iteration
-        r = block_io(requests, &seed);
+        r = block_io(client, requests, &seed);
         if(r != ZX_OK) {
             fprintf(stderr, "Errno: %d\n", r);
         }
         nsec_to_str(zx_clock_get(ZX_CLOCK_MONOTONIC) - prev);
         fprintf(stderr, "\n");
 
-        if(alternate_rw && (rand64(&seed) % 2)) requests[0].opcode ^= BLOCKIO_READ | BLOCKIO_WRITE; //switch between read and write randomly
+        if(alternate_rw && (rand64(&seed) % 2)) {
+            requests[0].opcode ^= BLOCKIO_READ | BLOCKIO_WRITE; //switch between read and write randomly
+        }
 
         zx_nanosleep(zx_deadline_after(ZX_NSEC(wait)));
     }
@@ -499,6 +401,7 @@ zx_status_t run_latency_trials(void) {
 
 int main(int argc, char** argv) {
     zx_status_t r = ZX_OK;
+    fifo_client_t* client;
     blkdev_t blk;
     latency_args_t tmp = {   //default settings
         .blk = &blk,
@@ -511,14 +414,13 @@ int main(int argc, char** argv) {
         .seed = 7891263897612ULL,
         .max_pending = 128,
         .pending = 0,
-        .linear = true,
+        .linear = false,
     };
     memcpy(&largs, &tmp, sizeof(latency_args_t));
-    if(setup_blkdev(argc, argv) < 0) return 0;
-    if((r = run_latency_trials()) != ZX_OK) {
+    if(setup_blkdev(argc, argv, &client) < 0) return 0;
+    if((r = run_latency_trials(client)) != ZX_OK) {
         fprintf(stderr, "Error #: %d\n", r);
     }
-    block_fifo_release_client(client);
-    blkdev_close(largs.blk);
+    blkdev_close(largs.blk, client);
     return 0;
 }

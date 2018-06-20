@@ -98,6 +98,8 @@ private:
     fbl::unique_ptr<zx_pixel_format_t[]> pixel_formats_;
     uint32_t pixel_format_count_;
 
+    bool mode_change_ = false;
+
     friend Client;
     friend ClientProxy;
 };
@@ -155,8 +157,8 @@ private:
                            fidl::Builder* resp_builder, const fidl_type_t** resp_table);
     void HandleApplyConfig(const fuchsia_display_ControllerApplyConfigRequest* req,
                            fidl::Builder* resp_builder, const fidl_type_t** resp_table);
-    void HandleSetOwnership(const fuchsia_display_ControllerSetOwnershipRequest* req,
-                            fidl::Builder* resp_builder, const fidl_type_t** resp_table);
+    void HandleSetVirtconMode(const fuchsia_display_ControllerSetVirtconModeRequest* req,
+                              fidl::Builder* resp_builder, const fidl_type_t** resp_table);
     void HandleComputeLinearImageStride(
             const fuchsia_display_ControllerComputeLinearImageStrideRequest* req,
             fidl::Builder* resp_builder, const fidl_type_t** resp_table);
