@@ -13,7 +13,8 @@ MODULE_SRCS += $(LOCAL_DIR)/blocklatency.c
 
 MODULE_STATIC_LIBS := \
     system/ulib/block-client \
-    system/ulib/sync
+    system/ulib/sync \
+    system/ulib/blk-op
 
 MODULE_LIBS := \
     system/ulib/fdio \

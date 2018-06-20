@@ -23,13 +23,15 @@ lines starting with # are ignored.  Whitespace is not allowed in names.
 If this option is set, the system will not use Address Space Layout
 Randomization.
 
-## crashsvc.analyzer=\<path\>
+## crashsvc.analyzer=\<service-host\>
 
-If this option is set, the given analyzer will be used when crashsvc encounters
-an exception. If it is empty, the default crash analyzer will be used which
-logs exception information and a backtrace to the system log. The analyzer
-process is passed two startup handles: the process and thread that sustained
-the exception.
+If this is empty, the default crash analyzer in svchost will be used
+which logs exception information and a backtrace to the system log. If
+it is set, the crash analyzer will be found in the given service bundle.
+The only valid non-empty value for this currently is "from-appmgr".
+
+The analyzer process is passed two startup handles: the process and
+thread that sustained the exception.
 
 ## devmgr\.epoch=\<seconds\>
 
@@ -402,6 +404,11 @@ hardware cycle counters in a hardware-based time unit.  Defaults to false.
 ## virtcon.disable
 
 Do not launch the virtual console service if this option is present.
+
+## virtcon.hide-on-boot
+
+If this option is present, the virtual console will not take ownership of any
+displays until the user switches to it with a device control key combination.
 
 ## virtcon.keep-log-visible
 

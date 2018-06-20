@@ -105,9 +105,6 @@ static zx_status_t devhost_get_handles(zx_handle_t rh, zx_device_t* dev,
         uint32_t hcount = (handle != ZX_HANDLE_INVALID) ? 1 : 0;
         r = zx_channel_write(rh, 0, &info, sizeof(info), &handle, hcount);
         if (r != ZX_OK) {
-            if (hcount) {
-                zx_handle_close(handle);
-            }
             goto fail_open;
         }
     }
@@ -189,12 +186,12 @@ static ssize_t do_ioctl(zx_device_t* dev, uint32_t op, const void* in_buf, size_
         return r;
     }
     case IOCTL_DEVICE_GET_DEVICE_NAME: {
-        r = strlen(dev->name);
-        if (out_len < (size_t)r) {
+        size_t actual = strlen(dev->name) + 1;
+        if (out_len < actual) {
             return ZX_ERR_BUFFER_TOO_SMALL;
         }
-        strncpy(out_buf, dev->name, r);
-        return r;
+        memcpy(out_buf, dev->name, actual);
+        return actual;
     }
     case IOCTL_DEVICE_GET_TOPO_PATH: {
         size_t actual;

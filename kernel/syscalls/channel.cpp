@@ -252,53 +252,75 @@ static zx_status_t channel_call_epilogue(ProcessDispatcher* up,
     return ZX_OK;
 }
 
-static zx_status_t msg_put_handles(ProcessDispatcher* up, MessagePacket* msg, zx_handle_t* handles,
-                                   user_in_ptr<const zx_handle_t> user_handles, uint32_t num_user_handles,
+static zx_status_t msg_put_handles(ProcessDispatcher* up, MessagePacket* msg,
+                                   user_in_ptr<const zx_handle_t> user_handles,
+                                   uint32_t num_handles,
                                    Dispatcher* channel) {
 
-    if (user_handles.copy_array_from_user(handles, num_user_handles) != ZX_OK)
+    zx_handle_t handles[kMaxMessageHandles];
+    if (user_handles.copy_array_from_user(handles, num_handles) != ZX_OK)
         return ZX_ERR_INVALID_ARGS;
 
+    zx_status_t status = ZX_OK;
+
     {
-        // Loop twice, first we collect and validate handles, the second pass
-        // we remove them from this process.
         AutoLock lock(up->handle_table_lock());
 
-        for (size_t ix = 0; ix != num_user_handles; ++ix) {
-            auto handle = up->GetHandleLocked(handles[ix]);
-            if (!handle)
-                return ZX_ERR_BAD_HANDLE;
+        for (size_t ix = 0; ix != num_handles; ++ix) {
+            auto handle = up->RemoveHandleLocked(handles[ix]).release();
 
-            if (handle->dispatcher().get() == channel) {
-                // You may not write a channel endpoint handle
-                // into that channel endpoint
-                return ZX_ERR_NOT_SUPPORTED;
+            if (status == ZX_OK) {
+                if (!handle) {
+                    status = ZX_ERR_BAD_HANDLE;
+                } else {
+                    // You may not write a channel endpoint handle into that channel
+                    // endpoint.
+                    if (handle->dispatcher().get() == channel)
+                        status = ZX_ERR_NOT_SUPPORTED;
+
+                    if (!handle->HasRights(ZX_RIGHT_TRANSFER))
+                        status = ZX_ERR_ACCESS_DENIED;
+                }
             }
-
-            if (!handle->HasRights(ZX_RIGHT_TRANSFER))
-                return ZX_ERR_ACCESS_DENIED;
 
             msg->mutable_handles()[ix] = handle;
         }
-
-        for (size_t ix = 0; ix != num_user_handles; ++ix) {
-            auto handle = up->RemoveHandleLocked(handles[ix]).release();
-            // Passing duplicate handles is not allowed.
-            // If we've already seen this handle flag an error.
-            if (!handle) {
-                // Put back the handles we've already removed.
-                for (size_t idx = 0; idx < ix; ++idx) {
-                    up->UndoRemoveHandleLocked(handles[idx]);
-                }
-                // TODO(ZX-968): more specific error?
-                return ZX_ERR_INVALID_ARGS;
-            }
-        }
     }
 
-    // On success, the MessagePacket owns the handles.
     msg->set_owns_handles(true);
-    return ZX_OK;
+    return status;
+}
+
+static void consume_user_handles(ProcessDispatcher* up,
+                                 user_in_ptr<const zx_handle_t> user_handles,
+                                 uint32_t num_handles) {
+    if (num_handles == 0u)
+        return;
+
+    uint32_t offset = 0;
+    while (offset < num_handles) {
+        // We process |num_handles| in chunks of |kMaxMessageHandles| because we
+        // don't have a limit on how large |num_handles| can be yet. By the time
+        // we get around to |msg_put_handles|, we will have established that
+        // |num_handles| is at most |kMaxMessageHandles| because
+        // |MessagePacket::Create| enforces that limit.
+        uint32_t chunk_size = fbl::min(num_handles - offset, kMaxMessageHandles);
+
+        zx_handle_t handles[kMaxMessageHandles];
+
+        // If we fail |copy_array_from_user|, then we might discard some, but
+        // not all, of the handles |user_handles| specified.
+        if (user_handles.copy_array_from_user(handles, chunk_size, offset) != ZX_OK)
+            return;
+
+        {
+            AutoLock lock(up->handle_table_lock());
+            for (size_t ix = 0; ix != chunk_size; ++ix)
+                up->RemoveHandleLocked(handles[ix]);
+        }
+
+        offset += chunk_size;
+    }
 }
 
 zx_status_t sys_channel_write(zx_handle_t handle_value, uint32_t options,
@@ -307,39 +329,37 @@ zx_status_t sys_channel_write(zx_handle_t handle_value, uint32_t options,
     LTRACEF("handle %x bytes %p num_bytes %u handles %p num_handles %u options 0x%x\n",
             handle_value, user_bytes.get(), num_bytes, user_handles.get(), num_handles, options);
 
-    if (options)
-        return ZX_ERR_INVALID_ARGS;
-
     auto up = ProcessDispatcher::GetCurrent();
 
-    fbl::RefPtr<ChannelDispatcher> channel;
-    zx_status_t result = up->GetDispatcherWithRights(handle_value, ZX_RIGHT_WRITE, &channel);
-    if (result != ZX_OK)
-        return result;
+    if (options != 0u) {
+        consume_user_handles(up, user_handles, num_handles);
+        return ZX_ERR_INVALID_ARGS;
+    }
 
+    fbl::RefPtr<ChannelDispatcher> channel;
+    zx_status_t status = up->GetDispatcherWithRights(handle_value, ZX_RIGHT_WRITE, &channel);
+    if (status != ZX_OK) {
+        consume_user_handles(up, user_handles, num_handles);
+        return status;
+    }
 
     fbl::unique_ptr<MessagePacket> msg;
-    result = MessagePacket::Create(user_bytes, num_bytes, num_handles, &msg);
-    if (result != ZX_OK)
-        return result;
+    status = MessagePacket::Create(user_bytes, num_bytes, num_handles, &msg);
+    if (status != ZX_OK) {
+        consume_user_handles(up, user_handles, num_handles);
+        return status;
+    }
 
-    zx_handle_t handles[kMaxMessageHandles];
     if (num_handles > 0u) {
-        result = msg_put_handles(up, msg.get(), handles, user_handles, num_handles,
+        status = msg_put_handles(up, msg.get(), user_handles, num_handles,
                                  static_cast<Dispatcher*>(channel.get()));
-        if (result)
-            return result;
+        if (status != ZX_OK)
+            return status;
     }
 
-    result = channel->Write(fbl::move(msg));
-    if (result != ZX_OK) {
-        // Write failed, put back the handles into this process.
-        AutoLock lock(up->handle_table_lock());
-        for (size_t ix = 0; ix != num_handles; ++ix) {
-            up->UndoRemoveHandleLocked(handles[ix]);
-        }
-        return result;
-    }
+    status = channel->Write(fbl::move(msg));
+    if (status != ZX_OK)
+        return status;
 
     ktrace(TAG_CHANNEL_WRITE, (uint32_t)channel->get_koid(), num_bytes, num_handles, 0);
     return ZX_OK;
@@ -357,59 +377,47 @@ zx_status_t sys_channel_call_noretry(zx_handle_t handle_value, uint32_t options,
     if (status != ZX_OK)
         return status;
 
-    if (options)
-        return ZX_ERR_INVALID_ARGS;
+    user_in_ptr<const void> user_bytes = make_user_in_ptr(args.wr_bytes);
+    user_in_ptr<const zx_handle_t> user_handles = make_user_in_ptr(args.wr_handles);
 
     uint32_t num_bytes = args.wr_num_bytes;
     uint32_t num_handles = args.wr_num_handles;
 
-    if (num_bytes < sizeof(zx_txid_t))
-        return ZX_ERR_INVALID_ARGS;
-
     auto up = ProcessDispatcher::GetCurrent();
 
+    if (options || num_bytes < sizeof(zx_txid_t)) {
+        consume_user_handles(up, user_handles, num_handles);
+        return ZX_ERR_INVALID_ARGS;
+    }
+
     fbl::RefPtr<ChannelDispatcher> channel;
-    zx_status_t result =
-        up->GetDispatcherWithRights(handle_value, ZX_RIGHT_WRITE | ZX_RIGHT_READ, &channel);
-    if (result != ZX_OK)
-        return result;
+    status = up->GetDispatcherWithRights(handle_value, ZX_RIGHT_WRITE | ZX_RIGHT_READ, &channel);
+    if (status != ZX_OK) {
+        consume_user_handles(up, user_handles, num_handles);
+        return status;
+    }
 
     // Prepare a MessagePacket for writing
     fbl::unique_ptr<MessagePacket> msg;
-    result = MessagePacket::Create(make_user_in_ptr(args.wr_bytes),
-                                   num_bytes, num_handles, &msg);
-    if (result != ZX_OK)
-        return result;
+    status = MessagePacket::Create(user_bytes, num_bytes, num_handles, &msg);
+    if (status != ZX_OK) {
+        consume_user_handles(up, user_handles, num_handles);
+        return status;
+    }
 
-    zx_handle_t handles[kMaxMessageHandles];
     if (num_handles > 0u) {
-        result = msg_put_handles(up, msg.get(), handles,
-                                 make_user_in_ptr(args.wr_handles), num_handles,
+        status = msg_put_handles(up, msg.get(), user_handles, num_handles,
                                  static_cast<Dispatcher*>(channel.get()));
-        if (result)
-            return result;
+        if (status)
+            return status;
     }
 
     // TODO(ZX-970): ktrace channel calls; maybe two traces, maybe with txid.
 
     // Write message and wait for reply, deadline, or cancelation
-    bool return_handles = false;
     fbl::unique_ptr<MessagePacket> reply;
-    if ((result = channel->Call(fbl::move(msg), deadline, &return_handles, &reply)) != ZX_OK) {
-        if (return_handles) {
-            // Write phase failed:
-            // 1. Put back the handles into this process.
-            AutoLock lock(up->handle_table_lock());
-            for (size_t ix = 0; ix != num_handles; ++ix) {
-                up->UndoRemoveHandleLocked(handles[ix]);
-            }
-            // 2. Return error directly.  Note that the write phase cannot fail
-            // with ZX_ERR_INTERNAL_INTR_RETRY.
-            DEBUG_ASSERT(result != ZX_ERR_INTERNAL_INTR_RETRY);
-            return result;
-        }
-    }
-    return channel_call_epilogue(up, fbl::move(reply), &args, result,
+    status = channel->Call(fbl::move(msg), deadline, &reply);
+    return channel_call_epilogue(up, fbl::move(reply), &args, status,
                                  actual_bytes, actual_handles, read_status);
 }
 
@@ -432,9 +440,8 @@ zx_status_t sys_channel_call_finish(zx_time_t deadline,
         return ZX_ERR_BAD_STATE;
 
     fbl::unique_ptr<MessagePacket> reply;
-    zx_status_t result = channel->ResumeInterruptedCall(
-        waiter, deadline, &reply);
-    return channel_call_epilogue(up, fbl::move(reply), &args, result,
+    status = channel->ResumeInterruptedCall(waiter, deadline, &reply);
+    return channel_call_epilogue(up, fbl::move(reply), &args, status,
                                  actual_bytes, actual_handles, read_status);
 
 }

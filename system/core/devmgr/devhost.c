@@ -308,7 +308,7 @@ static zx_status_t dh_handle_rpc_read(zx_handle_t h, iostate_t* ios) {
             break;
         }
         zx_device_t* dev = newios->dev;
-        memcpy(dev->name, "proxy", 7);
+        strcpy(dev->name, "proxy");
         dev->protocol_id = msg.protocol_id;
         dev->ops = &device_default_ops;
         dev->rpc = hin[0];
@@ -650,7 +650,7 @@ static ssize_t _devhost_log_write(uint32_t flags, const void* _data, size_t len)
         if (c == '\n') {
             if (ctx->next) {
 flush_ctx:
-                zx_log_write(ctx->handle, ctx->next, ctx->data, flags);
+                zx_debuglog_write(ctx->handle, flags, ctx->data, ctx->next);
                 ctx->next = 0;
             }
             continue;
