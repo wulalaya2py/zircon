@@ -49,6 +49,7 @@ static const pbus_dev_t usb1_dev = {
     .bti_count = countof(usb1_btis),
 };
 
+/*
 static const pbus_mmio_t usb2_mmios[] = {
     {
         .base = IMX8M_USB2_BASE,
@@ -82,6 +83,7 @@ static const pbus_dev_t usb2_dev = {
     .btis = usb2_btis,
     .bti_count = countof(usb2_btis),
 };
+*/
 
 zx_status_t imx_usb_phy_init(zx_paddr_t usb_base, size_t usb_length, zx_handle_t bti) {
     uint32_t reg;
@@ -97,6 +99,7 @@ zx_status_t imx_usb_phy_init(zx_paddr_t usb_base, size_t usb_length, zx_handle_t
     //TODO: More stuff might be needed if we were to boot from our own bootloader.
     reg = readl(regs + USB_PHY_CTRL1);
     reg &= ~(PHY_CTRL1_VDATSRCENB0 | PHY_CTRL1_VDATDETENB0);
+    reg &= PHY_CTRL1_COMMONONN;
     reg |= PHY_CTRL1_RESET | PHY_CTRL1_ATERESET;
     writel(reg, regs + USB_PHY_CTRL1);
 
@@ -166,10 +169,12 @@ zx_status_t imx_usb_init(imx8mevk_bus_t* bus) {
         zxlogf(ERROR, "imx_usb_init could not add usb1_dev: %d\n", status);
         return status;
     }
+/*
     if ((status = pbus_device_add(&bus->pbus, &usb2_dev, 0)) != ZX_OK) {
         zxlogf(ERROR, "imx_usb_init could not add usb2_dev: %d\n", status);
         return status;
     }
+*/
     return ZX_OK;
 }
 
