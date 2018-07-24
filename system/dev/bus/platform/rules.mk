@@ -11,13 +11,14 @@ MODULE_TYPE := driver
 MODULE_NAME := platform-bus
 
 MODULE_SRCS := \
-    $(LOCAL_DIR)/platform-bus.c \
+    $(LOCAL_DIR)/platform-bus.cpp \
     $(LOCAL_DIR)/platform-bus-bind.c \
-    $(LOCAL_DIR)/platform-device.c \
-    $(LOCAL_DIR)/platform-i2c.c \
+    $(LOCAL_DIR)/platform-device.cpp \
+    $(LOCAL_DIR)/platform-i2c.cpp \
 
 MODULE_STATIC_LIBS := \
     system/ulib/ddk \
+    system/ulib/fbl \
     system/ulib/sync \
 
 MODULE_LIBS := \
@@ -39,6 +40,7 @@ MODULE_SRCS := \
 
 MODULE_STATIC_LIBS := \
     system/ulib/ddk \
+    system/ulib/fbl \
     system/ulib/sync \
 
 MODULE_LIBS := \
