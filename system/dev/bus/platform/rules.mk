@@ -35,7 +35,7 @@ MODULE_TYPE := driver
 MODULE_NAME := platform-bus.proxy
 
 MODULE_SRCS := \
-    $(LOCAL_DIR)/platform-proxy.c \
+    $(LOCAL_DIR)/platform-proxy.cpp \
     $(LOCAL_DIR)/platform-proxy-bind.c \
 
 MODULE_STATIC_LIBS := \

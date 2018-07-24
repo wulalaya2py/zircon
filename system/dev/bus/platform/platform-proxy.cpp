@@ -32,13 +32,13 @@ static zx_status_t platform_dev_rpc(platform_proxy_t* proxy, pdev_req_t* req, ui
 
     zx_channel_call_args_t args = {
         .wr_bytes = req,
-        .rd_bytes = resp,
-        .wr_num_bytes = req_length,
-        .rd_num_bytes = resp_length,
-        .rd_handles = out_handles,
-        .rd_num_handles = out_handle_count,
         .wr_handles = in_handles,
+        .rd_bytes = resp,
+        .rd_handles = out_handles,
+        .wr_num_bytes = req_length,
         .wr_num_handles = in_handle_count,
+        .rd_num_bytes = resp_length,
+        .rd_num_handles = out_handle_count,
     };
     zx_status_t status = zx_channel_call(proxy->rpc_channel, 0, ZX_TIME_INFINITE, &args, &resp_size,
                                          &handle_count);
@@ -57,7 +57,7 @@ static zx_status_t platform_dev_rpc(platform_proxy_t* proxy, pdev_req_t* req, ui
 
     status = resp->status;
     if (out_data_received) {
-        *out_data_received = resp_size - sizeof(pdev_resp_t);
+        *out_data_received = static_cast<uint32_t>(resp_size - sizeof(pdev_resp_t));
     }
 
 fail:
@@ -70,9 +70,11 @@ fail:
 }
 
 static zx_status_t pdev_ums_set_mode(void* ctx, usb_mode_t mode) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_UMS_SET_MODE,
+        .index = 0,
         .usb_mode = mode,
     };
     pdev_resp_t resp;
@@ -86,8 +88,9 @@ usb_mode_switch_protocol_ops_t usb_mode_switch_ops = {
 };
 
 static zx_status_t pdev_gpio_config(void* ctx, uint32_t index, uint32_t flags) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_CONFIG,
         .index = index,
         .gpio_flags = flags,
@@ -99,8 +102,9 @@ static zx_status_t pdev_gpio_config(void* ctx, uint32_t index, uint32_t flags) {
 }
 
 static zx_status_t pdev_gpio_set_alt_function(void* ctx, uint32_t index, uint64_t function) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_SET_ALT_FUNCTION,
         .index = index,
         .gpio_alt_function = function,
@@ -114,8 +118,9 @@ static zx_status_t pdev_gpio_set_alt_function(void* ctx, uint32_t index, uint64_
 static zx_status_t pdev_gpio_get_interrupt(void* ctx, uint32_t index,
                                            uint32_t flags,
                                            zx_handle_t *out_handle) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_GET_INTERRUPT,
         .index = index,
         .flags = flags,
@@ -127,8 +132,9 @@ static zx_status_t pdev_gpio_get_interrupt(void* ctx, uint32_t index,
 }
 
 static zx_status_t pdev_gpio_set_polarity(void* ctx, uint32_t index, uint32_t polarity) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_SET_POLARITY,
         .index = index,
         .flags = polarity,
@@ -137,20 +143,24 @@ static zx_status_t pdev_gpio_set_polarity(void* ctx, uint32_t index, uint32_t po
     return platform_dev_rpc(proxy, &req, sizeof(req), &resp, sizeof(resp), NULL, 0, NULL, 0, NULL);
 }
 static zx_status_t pdev_gpio_release_interrupt(void *ctx, uint32_t index) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_RELEASE_INTERRUPT,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
     return platform_dev_rpc(proxy, &req, sizeof(req), &resp, sizeof(resp), NULL, 0, NULL, 0, NULL);
 }
 
 static zx_status_t pdev_gpio_read(void* ctx, uint32_t index, uint8_t* out_value) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_READ,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -164,8 +174,9 @@ static zx_status_t pdev_gpio_read(void* ctx, uint32_t index, uint8_t* out_value)
 }
 
 static zx_status_t pdev_gpio_write(void* ctx, uint32_t index, uint8_t value) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GPIO_WRITE,
         .index = index,
         .gpio_value = value,
@@ -187,9 +198,11 @@ static gpio_protocol_ops_t gpio_ops = {
 
 static zx_status_t pdev_scpi_get_sensor_value(void* ctx, uint32_t sensor_id,
                                          uint32_t* sensor_value) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_SCPI_GET_SENSOR_VALUE,
+        .index = 0,
         .scpi.sensor_id = sensor_id,
     };
 
@@ -205,12 +218,14 @@ static zx_status_t pdev_scpi_get_sensor_value(void* ctx, uint32_t sensor_id,
 
 static zx_status_t pdev_scpi_get_sensor(void* ctx, const char* name,
                                          uint32_t* sensor_id) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_SCPI_GET_SENSOR,
+        .unused = 0,
     };
     uint32_t max_len = sizeof(req.scpi.name);
-    uint32_t len = strnlen(name, max_len);
+    size_t len = strnlen(name, max_len);
     if (len == max_len) {
         return ZX_ERR_INVALID_ARGS;
     }
@@ -227,9 +242,11 @@ static zx_status_t pdev_scpi_get_sensor(void* ctx, const char* name,
 
 static zx_status_t pdev_scpi_get_dvfs_info(void* ctx, uint8_t power_domain,
                                            scpi_opp_t* opps) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_SCPI_GET_DVFS_INFO,
+        .index = 0,
         .scpi.power_domain = power_domain,
     };
 
@@ -245,9 +262,11 @@ static zx_status_t pdev_scpi_get_dvfs_info(void* ctx, uint8_t power_domain,
 
 static zx_status_t pdev_scpi_get_dvfs_idx(void* ctx, uint8_t power_domain,
                                            uint16_t* idx) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_SCPI_GET_DVFS_IDX,
+        .index = 0,
         .scpi.power_domain = power_domain,
     };
 
@@ -263,11 +282,13 @@ static zx_status_t pdev_scpi_get_dvfs_idx(void* ctx, uint8_t power_domain,
 
 static zx_status_t pdev_scpi_set_dvfs_idx(void* ctx, uint8_t power_domain,
                                            uint16_t idx) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_SCPI_SET_DVFS_IDX,
+        .index = 0,
         .scpi.power_domain = power_domain,
-        .scpi.idx = idx,
+        .scpi.idx = idx,    // TODO - use index for this?
     };
 
     pdev_resp_t resp;
@@ -285,10 +306,13 @@ static scpi_protocol_ops_t scpi_ops = {
 
 static zx_status_t pdev_mailbox_send_cmd(void* ctx, mailbox_channel_t* channel,
                                          mailbox_data_buf_t* mdata) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     zx_status_t status = ZX_OK;
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_MAILBOX_SEND_CMD,
+        .index = 0,
+        .unused = 0,
     };
 
     if (!channel || !mdata) {
@@ -342,11 +366,14 @@ static mailbox_protocol_ops_t mailbox_ops = {
 static zx_status_t pdev_canvas_config(void* ctx, zx_handle_t vmo,
                                       size_t offset, canvas_info_t* info,
                                       uint8_t* canvas_idx) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     zx_status_t status = ZX_OK;
     pdev_resp_t resp;
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_CANVAS_CONFIG,
+        .index = 0,
+        .unused = 0,
     };
 
     memcpy((void*)&req.canvas.info, info, sizeof(canvas_info_t));
@@ -361,11 +388,13 @@ static zx_status_t pdev_canvas_config(void* ctx, zx_handle_t vmo,
 }
 
 static zx_status_t pdev_canvas_free(void* ctx, uint8_t canvas_idx) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_resp_t resp;
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_CANCAS_FREE,
-        .canvas_idx = canvas_idx,
+        .index = 0,
+        .canvas_idx = canvas_idx,   // TODO - use index for this?
     };
 
     return platform_dev_rpc(proxy, &req, sizeof(req), &resp, sizeof(resp),
@@ -378,11 +407,13 @@ static canvas_protocol_ops_t canvas_ops = {
 };
 
 static zx_status_t pdev_i2c_get_max_transfer_size(void* ctx, uint32_t index, size_t* out_size) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
 
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_I2C_GET_MAX_TRANSFER,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -397,7 +428,7 @@ static zx_status_t pdev_i2c_get_max_transfer_size(void* ctx, uint32_t index, siz
 static zx_status_t pdev_i2c_transact(void* ctx, uint32_t index, const void* write_buf,
                                      size_t write_length, size_t read_length,
                                      i2c_complete_cb complete_cb, void* cookie) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
 
     if (!read_length && !write_length) {
         return ZX_ERR_INVALID_ARGS;
@@ -411,6 +442,7 @@ static zx_status_t pdev_i2c_transact(void* ctx, uint32_t index, const void* writ
         uint8_t data[PDEV_I2C_MAX_TRANSFER_SIZE];
     } req = {
         .req = {
+            .txid = 0,
             .op = PDEV_I2C_TRANSACT,
             .index = index,
             .i2c_txn = {
@@ -462,10 +494,12 @@ static i2c_protocol_ops_t i2c_ops = {
 };
 
 static zx_status_t pdev_clk_enable(void* ctx, uint32_t index) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_CLK_ENABLE,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -474,10 +508,12 @@ static zx_status_t pdev_clk_enable(void* ctx, uint32_t index) {
 }
 
 static zx_status_t pdev_clk_disable(void* ctx, uint32_t index) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_CLK_DISABLE,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -493,10 +529,12 @@ static clk_protocol_ops_t clk_ops = {
 static zx_status_t platform_dev_map_mmio(void* ctx, uint32_t index, uint32_t cache_policy,
                                          void** vaddr, size_t* size, zx_paddr_t* out_paddr,
                                          zx_handle_t* out_handle) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GET_MMIO,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
     zx_handle_t vmo_handle;
@@ -544,8 +582,9 @@ fail:
 
 static zx_status_t platform_dev_map_interrupt(void* ctx, uint32_t index,
                                               uint32_t flags, zx_handle_t* out_handle) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GET_INTERRUPT,
         .index = index,
         .flags = flags,
@@ -557,10 +596,12 @@ static zx_status_t platform_dev_map_interrupt(void* ctx, uint32_t index,
 }
 
 static zx_status_t platform_dev_get_bti(void* ctx, uint32_t index, zx_handle_t* out_handle) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GET_BTI,
         .index = index,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -569,9 +610,12 @@ static zx_status_t platform_dev_get_bti(void* ctx, uint32_t index, zx_handle_t* 
 }
 
 static zx_status_t platform_dev_get_device_info(void* ctx, pdev_device_info_t* out_info) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
     pdev_req_t req = {
+        .txid = 0,
         .op = PDEV_GET_DEVICE_INFO,
+        .index = 0,
+        .unused = 0,
     };
     pdev_resp_t resp;
 
@@ -589,54 +633,55 @@ static platform_device_protocol_ops_t platform_dev_proto_ops = {
     .map_interrupt = platform_dev_map_interrupt,
     .get_bti = platform_dev_get_bti,
     .get_device_info = platform_dev_get_device_info,
+    .device_add = nullptr,
 };
 
 static zx_status_t platform_dev_get_protocol(void* ctx, uint32_t proto_id, void* out) {
     switch (proto_id) {
     case ZX_PROTOCOL_PLATFORM_DEV: {
-        platform_device_protocol_t* proto = out;
+        platform_device_protocol_t* proto = static_cast<platform_device_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &platform_dev_proto_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_USB_MODE_SWITCH: {
-        usb_mode_switch_protocol_t* proto = out;
+        usb_mode_switch_protocol_t* proto = static_cast<usb_mode_switch_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &usb_mode_switch_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_GPIO: {
-        gpio_protocol_t* proto = out;
+        gpio_protocol_t* proto = static_cast<gpio_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &gpio_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_I2C: {
-        i2c_protocol_t* proto = out;
+        i2c_protocol_t* proto = static_cast<i2c_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &i2c_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_CLK: {
-        clk_protocol_t* proto = out;
+        clk_protocol_t* proto = static_cast<clk_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &clk_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_MAILBOX: {
-        mailbox_protocol_t* proto = out;
+        mailbox_protocol_t* proto = static_cast<mailbox_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &mailbox_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_SCPI: {
-        scpi_protocol_t* proto = out;
+        scpi_protocol_t* proto = static_cast<scpi_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &scpi_ops;
         return ZX_OK;
     }
     case ZX_PROTOCOL_CANVAS: {
-        canvas_protocol_t* proto = out;
+        canvas_protocol_t* proto = static_cast<canvas_protocol_t*>(out);
         proto->ctx = ctx;
         proto->ops = &canvas_ops;
         return ZX_OK;
@@ -647,7 +692,7 @@ static zx_status_t platform_dev_get_protocol(void* ctx, uint32_t proto_id, void*
 }
 
 static void platform_dev_release(void* ctx) {
-    platform_proxy_t* proxy = ctx;
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
 
     zx_handle_close(proxy->rpc_channel);
     free(proxy);
@@ -656,12 +701,24 @@ static void platform_dev_release(void* ctx) {
 static zx_protocol_device_t platform_dev_proto = {
     .version = DEVICE_OPS_VERSION,
     .get_protocol = platform_dev_get_protocol,
+    .open = nullptr,
+    .open_at = nullptr,
+    .close = nullptr,
+    .unbind = nullptr,
     .release = platform_dev_release,
+    .read = nullptr,
+    .write = nullptr,
+    .get_size = nullptr,
+    .ioctl = nullptr,
+    .suspend = nullptr,
+    .resume = nullptr,
+    .rxrpc = nullptr,
+    .message = nullptr,
 };
 
 zx_status_t platform_proxy_create(void* ctx, zx_device_t* parent, const char* name,
                                   const char* args, zx_handle_t rpc_channel) {
-    platform_proxy_t* proxy = calloc(1, sizeof(platform_proxy_t));
+    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(calloc(1, sizeof(platform_proxy_t)));
     if (!proxy) {
         return ZX_ERR_NO_MEMORY;
     }

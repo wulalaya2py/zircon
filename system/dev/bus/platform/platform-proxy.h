@@ -109,7 +109,7 @@ typedef struct pdev_req {
     union {
         usb_mode_t usb_mode;
         uint32_t gpio_flags;
-        uint32_t gpio_alt_function;
+        uint64_t gpio_alt_function;
         uint8_t gpio_value;
         uint8_t canvas_idx;
         pdev_i2c_txn_ctx_t i2c_txn;
@@ -118,6 +118,7 @@ typedef struct pdev_req {
         pdev_mailbox_ctx_t mailbox;
         pdev_scpi_ctx_t scpi;
         pdev_canvas_ctx_t canvas;
+        uint8_t unused;
     };
 } pdev_req_t;
 
@@ -138,6 +139,7 @@ typedef struct {
         pdev_device_info_t info;
         pdev_mailbox_ctx_t mailbox;
         pdev_scpi_ctx_t scpi;
+        uint8_t unused;
     };
 } pdev_resp_t;
 
