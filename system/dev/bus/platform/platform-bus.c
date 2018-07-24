@@ -306,8 +306,8 @@ static zx_status_t platform_bus_read_zbi(platform_bus_t* bus, zx_handle_t vmo) {
     return ZX_OK;
 }
 
-static zx_status_t platform_bus_create(void* ctx, zx_device_t* parent, const char* name,
-                                       const char* args, zx_handle_t zbi_vmo) {
+zx_status_t platform_bus_create(void* ctx, zx_device_t* parent, const char* name,
+                                const char* args, zx_handle_t zbi_vmo) {
     if (!args) {
         zxlogf(ERROR, "platform_bus_create: args missing\n");
         return ZX_ERR_NOT_SUPPORTED;
@@ -375,13 +375,3 @@ static zx_status_t platform_bus_create(void* ctx, zx_device_t* parent, const cha
 
    return device_add(parent, &add_args, &bus->zxdev);
 }
-
-static zx_driver_ops_t platform_bus_driver_ops = {
-    .version = DRIVER_OPS_VERSION,
-    .create = platform_bus_create,
-};
-
-ZIRCON_DRIVER_BEGIN(platform_bus, platform_bus_driver_ops, "zircon", "0.1", 1)
-    // devmgr loads us directly, so we need no binding information here
-    BI_ABORT_IF_AUTOBIND,
-ZIRCON_DRIVER_END(platform_bus)

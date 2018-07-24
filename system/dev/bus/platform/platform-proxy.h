@@ -10,6 +10,7 @@
 #include <ddk/protocol/mailbox.h>
 #include <ddk/protocol/scpi.h>
 #include <ddk/protocol/i2c.h>
+#include <ddk/protocol/platform-device.h>
 #include <ddk/protocol/usb-mode-switch.h>
 #include <ddk/protocol/canvas.h>
 
@@ -139,3 +140,6 @@ typedef struct {
         pdev_scpi_ctx_t scpi;
     };
 } pdev_resp_t;
+
+zx_status_t platform_proxy_create(void* ctx, zx_device_t* parent, const char* name,
+                                  const char* args, zx_handle_t rpc_channel);

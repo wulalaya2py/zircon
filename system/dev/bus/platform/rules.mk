@@ -12,12 +12,18 @@ MODULE_NAME := platform-bus
 
 MODULE_SRCS := \
     $(LOCAL_DIR)/platform-bus.c \
+    $(LOCAL_DIR)/platform-bus-bind.c \
     $(LOCAL_DIR)/platform-device.c \
     $(LOCAL_DIR)/platform-i2c.c \
 
-MODULE_STATIC_LIBS := system/ulib/ddk system/ulib/sync
+MODULE_STATIC_LIBS := \
+    system/ulib/ddk \
+    system/ulib/sync \
 
-MODULE_LIBS := system/ulib/driver system/ulib/zircon system/ulib/c
+MODULE_LIBS := \
+    system/ulib/driver \
+    system/ulib/zircon \
+    system/ulib/c \
 
 include make/module.mk
 
@@ -29,9 +35,15 @@ MODULE_NAME := platform-bus.proxy
 
 MODULE_SRCS := \
     $(LOCAL_DIR)/platform-proxy.c \
+    $(LOCAL_DIR)/platform-proxy-bind.c \
 
-MODULE_STATIC_LIBS := system/ulib/ddk system/ulib/sync
+MODULE_STATIC_LIBS := \
+    system/ulib/ddk \
+    system/ulib/sync \
 
-MODULE_LIBS := system/ulib/driver system/ulib/zircon system/ulib/c
+MODULE_LIBS := \
+    system/ulib/driver \
+    system/ulib/zircon \
+    system/ulib/c \
 
 include make/module.mk
