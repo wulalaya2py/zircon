@@ -17,6 +17,7 @@
 #include <ddk/protocol/usb-mode-switch.h>
 
 #include "platform-proxy.h"
+#include "proxy-protocol.h"
 
 typedef struct {
     zx_device_t* zxdev;

@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include "platform-bus.h"
-#include "platform-proxy.h"
+#include "proxy-protocol.h"
 
 static zx_status_t platform_dev_map_mmio(void* ctx, uint32_t index, uint32_t cache_policy,
                                          void** vaddr, size_t* size, zx_paddr_t* out_paddr,
