@@ -23,6 +23,7 @@ enum {
     PDEV_GET_INTERRUPT,
     PDEV_GET_BTI,
     PDEV_GET_DEVICE_INFO,
+    PDEV_DEVICE_ADD,
 
     // ZX_PROTOCOL_USB_MODE_SWITCH
     PDEV_UMS_SET_MODE,
@@ -89,6 +90,7 @@ typedef struct pdev_req {
     zx_txid_t txid;
     uint32_t op;
     uint32_t index;
+    uint32_t device_id;
     union {
         usb_mode_t usb_mode;
         uint32_t gpio_flags;
@@ -126,5 +128,6 @@ typedef struct {
         uint16_t scpi_dvfs_idx;
         uint32_t scpi_sensor_id;
         scpi_opp_t scpi_opps;
+        uint32_t new_device_id;
     };
 } pdev_resp_t;
