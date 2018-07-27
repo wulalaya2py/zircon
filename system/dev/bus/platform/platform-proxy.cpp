@@ -15,6 +15,7 @@
 #include <ddk/protocol/platform-device.h>
 #include <ddk/protocol/clk.h>
 #include <ddk/protocol/usb-mode-switch.h>
+#include <fbl/unique_ptr.h>
 
 #include "platform-proxy.h"
 #include "proxy-protocol.h"
@@ -626,33 +627,32 @@ static zx_status_t platform_dev_get_protocol(void* ctx, uint32_t proto_id, void*
     }
 }
 
-static void platform_dev_release(void* ctx) {
-    platform_proxy_t* proxy = static_cast<platform_proxy_t*>(ctx);
+namespace platform_bus {
 
-    zx_handle_close(proxy->rpc_channel);
-    free(proxy);
+zx_status_t ProxyDevice::Create(const char* name) {
+    return DdkAdd(name);
 }
 
-static zx_protocol_device_t platform_dev_proto = {
-    .version = DEVICE_OPS_VERSION,
-    .get_protocol = platform_dev_get_protocol,
-    .open = nullptr,
-    .open_at = nullptr,
-    .close = nullptr,
-    .unbind = nullptr,
-    .release = platform_dev_release,
-    .read = nullptr,
-    .write = nullptr,
-    .get_size = nullptr,
-    .ioctl = nullptr,
-    .suspend = nullptr,
-    .resume = nullptr,
-    .rxrpc = nullptr,
-    .message = nullptr,
-};
+void ProxyDevice::DdkRelease() {
+    delete this;
+}
+
+} // namespace platform_bus
 
 zx_status_t platform_proxy_create(void* ctx, zx_device_t* parent, const char* name,
                                   const char* args, zx_handle_t rpc_channel) {
+
+    fbl::AllocChecker ac;
+    fbl::unique_ptr<platform_bus::ProxyDevice> core(new (&ac)
+                                                    platform_bus::ProxyDevice(parent, rpc_channel));
+    if (!ac.check()) {
+        return ZX_ERR_NO_MEMORY;
+    }
+
+    return core->Create(name);
+}
+
+/*
     platform_proxy_t* proxy = static_cast<platform_proxy_t*>(calloc(1, sizeof(platform_proxy_t)));
     if (!proxy) {
         return ZX_ERR_NO_MEMORY;
@@ -675,3 +675,4 @@ zx_status_t platform_proxy_create(void* ctx, zx_device_t* parent, const char* na
 
     return status;
 }
+*/

@@ -4,11 +4,11 @@
 
 #pragma once
 
-#include <ddk/protocol/nand.h>
+#include <ddk/protocol/platform-device.h>
 #include <ddktl/device-internal.h>
 #include <zircon/assert.h>
 
-#include "nand-internal.h"
+#include "platform-device-internal.h"
 
 // DDK platform device protocol support.
 //
@@ -63,28 +63,29 @@ protected:
     platform_device_protocol_ops_t pdev_proto_ops_ = {};
 
 private:
-    static zx_status_t MapMmio(uint32_t index, uint32_t cache_policy, void** out_vaddr,
+    static zx_status_t MapMmio(void* ctx, uint32_t index, uint32_t cache_policy, void** out_vaddr,
                         size_t* out_size, zx_paddr_t* out_paddr, zx_handle_t* out_handle) {
         return static_cast<D*>(ctx)->MapMmio(index, cache_policy, out_vaddr, out_size, out_paddr,
                                              out_handle);
     }
 
-    static zx_status_t MapInterrupt(uint32_t index, uint32_t flags, zx_handle_t* out_handle) {
+    static zx_status_t MapInterrupt(void* ctx, uint32_t index, uint32_t flags, zx_handle_t* out_handle) {
         return static_cast<D*>(ctx)->MapInterrupt(index, flags, out_handle);
     }
 
-    static zx_status_t GetBti(uint32_t index, zx_handle_t* out_handle) {
+    static zx_status_t GetBti(void* ctx, uint32_t index, zx_handle_t* out_handle) {
         return static_cast<D*>(ctx)->GetBti(index, out_handle);
     }
 
-    static zx_status_t GetDeviceInfo(pdev_device_info_t* out_info) {
+    static zx_status_t GetDeviceInfo(void* ctx, pdev_device_info_t* out_info) {
         return static_cast<D*>(ctx)->GetDeviceInfo(out_info);
     }
 };
 
-class NandProtocolProxy {
+/*
+class PdevProtocolProxy {
 public:
-    NandProtocolProxy(platform_device_protocol_t* proto)
+    PdevProtocolProxy(platform_device_protocol_t* proto)
         : ops_(proto->ops), ctx_(proto->ctx) {}
 
     zx_status_t MapMmio(uint32_t index, uint32_t cache_policy, void** out_vaddr,
@@ -97,7 +98,7 @@ public:
     }
 
     zx_status_t GetBti(uint32_t index, zx_handle_t* out_handle) {
-        return ops_->get_bti(ctx_, index, index, out_handle);
+        return ops_->get_bti(ctx_, index, out_handle);
     }
 
     zx_status_t GetDeviceInfo(pdev_device_info_t* out_info) {
@@ -108,5 +109,6 @@ private:
     platform_device_protocol_ops_t* ops_;
     void* ctx_;
 };
+*/
 
 } // namespace ddk

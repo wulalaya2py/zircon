@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <ddk/protocol/nand.h>
 #include <fbl/type_support.h>
 
 namespace ddk {
@@ -21,19 +20,19 @@ DECLARE_HAS_MEMBER_FN_WITH_SIGNATURE(has_get_device_info, GetDeviceInfo,
                                      void (C::*)(pdev_device_info_t*));
 
 template <typename D>
-constexpr void CheckNandProtocolSubclass() {
+constexpr void CheckPdevProtocolSubclass() {
     static_assert(internal::has_map_mmio<D>::value,
-                  "NandProtocol subclasses must implement "
+                  "PdevProtocol subclasses must implement "
                   "MapMmio(uint32_t index, uint32_t cache_policy, void** out_vaddr, "
                   "size_t* out_size, zx_paddr_t* out_paddr, zx_handle_t* out_handle)");
     static_assert(internal::has_map_interrupt<D>::value,
-                  "NandProtocol subclasses must implement "
+                  "PdevProtocol subclasses must implement "
                   "MapInterrupt(uint32_t index, uint32_t flags, zx_handle_t* out_handle)");
     static_assert(internal::has_get_bti<D>::value,
-                  "NandProtocol subclasses must implement "
+                  "PdevProtocol subclasses must implement "
                   "GetBti(uint32_t index, zx_handle_t* out_handle)");
     static_assert(internal::has_get_device_info<D>::value,
-                  "NandProtocol subclasses must implement "
+                  "PdevProtocol subclasses must implement "
                   "GetDeviceInfo(pdev_device_info_t* out_info)");
  }
 
